@@ -4,20 +4,25 @@ import { StockDto } from './dto/stock.dto';
 
 @Injectable()
 export class StocksService {
-  private readonly apiKey = process.env.FCSAPI_KEY;
+  private readonly apiKey = process.env.TWELVEDATA_KEY;
+
   private readonly symbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
+
+  // Optional: cache to reduce requests
   private lastResults: StockDto[] = [];
   private lastFetchTime = 0;
   private cacheDuration = 60 * 1000; // 1 minute
 
   async findAll(): Promise<StockDto[]> {
     if (!this.apiKey) {
-      throw new HttpException('FCSAPI key not set', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Twelve Data API key not set',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
 
     const now = Date.now();
     if (this.lastResults.length && now - this.lastFetchTime < this.cacheDuration) {
-      console.log('Returning cached stock data');
       return this.lastResults;
     }
 
@@ -25,20 +30,20 @@ export class StocksService {
 
     for (const symbol of this.symbols) {
       try {
-        const url = `https://fcsapi.com/api-v3/stock/latest?symbol=${symbol}&access_key=${this.apiKey}`;
+        const url = `https://api.twelvedata.com/price?symbol=${symbol}&apikey=${this.apiKey}`;
         const response = await axios.get(url);
 
-        console.log(`FCSAPI response for ${symbol}:`, response.data);
+        console.log(`Twelve Data response for ${symbol}:`, response.data);
 
-        const stockData = response.data?.response?.[0];
-        if (stockData && stockData.symbol && stockData.last) {
+        const price = parseFloat(response.data.price);
+        if (!isNaN(price)) {
           results.push({
-            symbol: stockData.symbol,
-            price: parseFloat(stockData.last),
-            updatedAt: new Date(stockData.date),
+            symbol,
+            price,
+            updatedAt: new Date(),
           });
         } else {
-          console.warn(`No data for symbol: ${symbol}`);
+          console.warn(`No valid price for symbol: ${symbol}`);
         }
       } catch (err: any) {
         console.error(`Failed to fetch ${symbol}:`, err.message);
@@ -52,10 +57,12 @@ export class StocksService {
     }
 
     if (this.lastResults.length) {
-      console.log('Returning previous cached data due to API failure');
       return this.lastResults;
     }
 
-    throw new HttpException('Failed to fetch stock data from FCSAPI', HttpStatus.SERVICE_UNAVAILABLE);
+    throw new HttpException(
+      'Failed to fetch stock data from Twelve Data',
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
   }
 }
