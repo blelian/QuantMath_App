@@ -54,10 +54,23 @@ export class StocksService {
       }
     }
 
-    // Update cache
-    this.lastResults = results;
-    this.lastFetchTime = Date.now();
+    // Only update cache if we got results
+    if (results.length) {
+      this.lastResults = results;
+      this.lastFetchTime = Date.now();
+      return results;
+    }
 
-    return results;
+    // If API failed but we have previous data, return that
+    if (this.lastResults.length) {
+      console.log('Returning previous cached data due to API failure or rate limit');
+      return this.lastResults;
+    }
+
+    // If no previous data, throw error
+    throw new HttpException(
+      'Failed to fetch stock data or rate limit exceeded',
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   }
 }
