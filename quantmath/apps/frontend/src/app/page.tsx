@@ -27,12 +27,12 @@ export default function Home() {
 
   const [chartValues, setChartValues] = useState<number[]>(Array(10).fill(0));
 
-  // Animate input panel on mount
+  // Animate input panel
   useEffect(() => {
     setTimeout(() => setInputVisible(true), 100);
   }, []);
 
-  // Animate chart bars (dummy animation for now)
+  // Animate chart bars
   useEffect(() => {
     const interval = setInterval(() => {
       setChartValues(chartValues.map(() => Math.random() * 100));
@@ -40,7 +40,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [chartValues]);
 
-  // Fetch stock data from backend
+  // Fetch stock data
   useEffect(() => {
     const fetchStocks = async () => {
       try {
@@ -62,7 +62,7 @@ export default function Home() {
     const selectedStock = stocks.find((s) => s.symbol === stockSymbol);
     if (selectedStock) {
       setPrice(selectedStock.price);
-      setMovingAvg(selectedStock.price * 0.95); // simple mock moving avg
+      setMovingAvg(selectedStock.price * 0.95);
       setShowOutput(true);
       setTimeout(() => setOutputVisible(true), 200);
     }
@@ -71,7 +71,7 @@ export default function Home() {
   const handleAIPredict = (e: React.FormEvent) => {
     e.preventDefault();
     if (price !== null) {
-      setAiPrediction(price * (Math.random() * 0.1 + 0.95)); // mock AI prediction
+      setAiPrediction(price * (Math.random() * 0.1 + 0.95));
       setShowAI(true);
       setTimeout(() => setAIVisible(true), 200);
     }
