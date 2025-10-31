@@ -6,14 +6,15 @@ import { StockDto } from './dto/stock.dto';
 export class StocksService {
   private readonly apiKey = process.env.TWELVEDATA_KEY;
 
-  private readonly symbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
+  // Default symbols
+  private readonly defaultSymbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
 
-  // Optional: cache to reduce requests
+  // Cache to reduce requests
   private lastResults: StockDto[] = [];
   private lastFetchTime = 0;
   private cacheDuration = 60 * 1000; // 1 minute
 
-  async findAll(): Promise<StockDto[]> {
+  async findAll(symbols?: string[]): Promise<StockDto[]> {
     if (!this.apiKey) {
       throw new HttpException(
         'Twelve Data API key not set',
@@ -27,23 +28,27 @@ export class StocksService {
     }
 
     const results: StockDto[] = [];
+    const fetchSymbols = symbols && symbols.length ? symbols : this.defaultSymbols;
 
-    for (const symbol of this.symbols) {
+    for (const symbol of fetchSymbols) {
       try {
-        const url = `https://api.twelvedata.com/price?symbol=${symbol}&apikey=${this.apiKey}`;
+        // Using 'quote' endpoint to get price and timestamp
+        const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${this.apiKey}`;
         const response = await axios.get(url);
 
         console.log(`Twelve Data response for ${symbol}:`, response.data);
 
-        const price = parseFloat(response.data.price);
-        if (!isNaN(price)) {
+        const quote = response.data;
+        if (quote && quote.price) {
           results.push({
             symbol,
-            price,
-            updatedAt: new Date(),
+            price: parseFloat(quote.price),
+            updatedAt: quote.timestamp ? new Date(parseInt(quote.timestamp) * 1000) : new Date(),
           });
+        } else if (quote.message) {
+          console.warn(`API error for ${symbol}: ${quote.message}`);
         } else {
-          console.warn(`No valid price for symbol: ${symbol}`);
+          console.warn(`No data for symbol: ${symbol}`);
         }
       } catch (err: any) {
         console.error(`Failed to fetch ${symbol}:`, err.message);
@@ -56,9 +61,7 @@ export class StocksService {
       return results;
     }
 
-    if (this.lastResults.length) {
-      return this.lastResults;
-    }
+    if (this.lastResults.length) return this.lastResults;
 
     throw new HttpException(
       'Failed to fetch stock data from Twelve Data',

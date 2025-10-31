@@ -4,9 +4,13 @@ export class StockDto {
   @ApiProperty({ example: 'AAPL', description: 'Stock symbol' })
   symbol: string;
 
-  @ApiProperty({ example: 173.45, description: 'Current stock price' })
+  @ApiProperty({ example: 271.40, description: 'Current stock price' })
   price: number;
 
-  @ApiProperty({ example: '2025-10-31', description: 'Date of last update' })
+  @ApiProperty({
+    example: '2025-10-31T09:59:04.391Z',
+    description: 'Date and time of last update in ISO 8601 format',
+    type: String,
+  })
   updatedAt: Date;
 }

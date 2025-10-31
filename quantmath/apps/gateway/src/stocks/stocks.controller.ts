@@ -13,7 +13,18 @@ export class StocksController {
   @ApiResponse({
     status: 200,
     description: 'List of stocks returned successfully.',
-    type: [StockDto],
+    schema: {
+      type: 'array',
+      items: {
+        $ref: '#/components/schemas/StockDto',
+      },
+      example: [
+        { symbol: 'AAPL', price: 271.39999, updatedAt: '2025-10-31T09:59:04.391Z' },
+        { symbol: 'GOOG', price: 281.89999, updatedAt: '2025-10-31T09:59:04.753Z' },
+        { symbol: 'MSFT', price: 525.76001, updatedAt: '2025-10-31T09:59:05.128Z' },
+        { symbol: 'TSLA', price: 440.10001, updatedAt: '2025-10-31T09:59:05.473Z' },
+      ],
+    },
   })
   @ApiResponse({
     status: 429,
