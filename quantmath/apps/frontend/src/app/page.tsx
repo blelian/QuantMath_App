@@ -27,12 +27,12 @@ export default function Home() {
 
   const [chartValues, setChartValues] = useState<number[]>(Array(10).fill(0));
 
-  // Animate input panel
+  // Animate input panel on mount
   useEffect(() => {
     setTimeout(() => setInputVisible(true), 100);
   }, []);
 
-  // Animate chart bars
+  // Animate chart bars (dummy animation for now)
   useEffect(() => {
     const interval = setInterval(() => {
       setChartValues(chartValues.map(() => Math.random() * 100));
@@ -40,16 +40,18 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [chartValues]);
 
-  // Fetch stock data
+  // Fetch stock data from backend using env variable
   useEffect(() => {
     const fetchStocks = async () => {
       try {
-        const res = await fetch("https://quantmath-app.onrender.com/stocks");
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+        const res = await fetch(`${backendUrl}/stocks`);
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         const data: Stock[] = await res.json();
         setStocks(data);
-      } catch (err: any) {
-        setError("Failed to fetch stock data");
+      } catch (err) {
+        console.error(err);
+        setError("Failed to fetch stock data. Check backend URL or CORS.");
       } finally {
         setLoading(false);
       }
@@ -62,7 +64,7 @@ export default function Home() {
     const selectedStock = stocks.find((s) => s.symbol === stockSymbol);
     if (selectedStock) {
       setPrice(selectedStock.price);
-      setMovingAvg(selectedStock.price * 0.95);
+      setMovingAvg(selectedStock.price * 0.95); // simple mock moving avg
       setShowOutput(true);
       setTimeout(() => setOutputVisible(true), 200);
     }
@@ -71,7 +73,7 @@ export default function Home() {
   const handleAIPredict = (e: React.FormEvent) => {
     e.preventDefault();
     if (price !== null) {
-      setAiPrediction(price * (Math.random() * 0.1 + 0.95));
+      setAiPrediction(price * (Math.random() * 0.1 + 0.95)); // mock AI prediction
       setShowAI(true);
       setTimeout(() => setAIVisible(true), 200);
     }
