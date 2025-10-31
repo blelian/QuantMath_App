@@ -5,9 +5,7 @@ import { StockDto } from './dto/stock.dto';
 @Injectable()
 export class StocksService {
   private readonly apiKey = process.env.FCSAPI_KEY;
-
   private readonly symbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
-
   private lastResults: StockDto[] = [];
   private lastFetchTime = 0;
   private cacheDuration = 60 * 1000; // 1 minute
@@ -19,6 +17,7 @@ export class StocksService {
 
     const now = Date.now();
     if (this.lastResults.length && now - this.lastFetchTime < this.cacheDuration) {
+      console.log('Returning cached stock data');
       return this.lastResults;
     }
 
@@ -26,7 +25,7 @@ export class StocksService {
 
     for (const symbol of this.symbols) {
       try {
-        const url = `https://fcsapi.com/api-v3/stocks/latest?symbol=${symbol}&access_key=${this.apiKey}`;
+        const url = `https://fcsapi.com/api-v3/stock/latest?symbol=${symbol}&access_key=${this.apiKey}`;
         const response = await axios.get(url);
 
         console.log(`FCSAPI response for ${symbol}:`, response.data);
@@ -53,6 +52,7 @@ export class StocksService {
     }
 
     if (this.lastResults.length) {
+      console.log('Returning previous cached data due to API failure');
       return this.lastResults;
     }
 
