@@ -1,0 +1,21 @@
+# Node
+node_modules/
+
+# TypeScript
+dist/
+build/
+
+# Next.js / frontend
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
