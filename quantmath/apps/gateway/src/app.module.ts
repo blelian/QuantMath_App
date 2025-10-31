@@ -14,11 +14,11 @@ import { AppService } from './app.service';
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
-      synchronize: true,
+      synchronize: process.env.NODE_ENV !== 'production', // safer for prod
     }),
     StocksModule,
   ],
-  controllers: [AppController],  
-  providers: [AppService],       
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
