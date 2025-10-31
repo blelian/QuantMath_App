@@ -18,8 +18,10 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  // Start server
-  await app.listen(process.env.PORT ?? 3001);
-  console.log(`🚀 QuantMath API running at http://localhost:${process.env.PORT ?? 3001}`);
+  // Use Render-provided PORT or fallback to 3001 for local dev
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+  await app.listen(port);
+
+  console.log(`🚀 QuantMath API running at http://localhost:${port}`);
 }
 bootstrap();
