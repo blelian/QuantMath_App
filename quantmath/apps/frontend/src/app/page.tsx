@@ -43,19 +43,33 @@ export default function Home() {
   // Fetch stock data from backend using env variable
   useEffect(() => {
     const fetchStocks = async () => {
+      const backendUrl =
+        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      console.log("Fetching stocks from:", backendUrl);
+
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
         const res = await fetch(`${backendUrl}/stocks`);
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        console.log("Fetch response status:", res.status);
+
+        if (!res.ok) {
+          const text = await res.text();
+          console.error("Fetch failed response text:", text);
+          throw new Error(`API error: ${res.status}`);
+        }
+
         const data: Stock[] = await res.json();
+        console.log("Fetched stocks:", data);
         setStocks(data);
       } catch (err) {
-        console.error(err);
-        setError("Failed to fetch stock data. Check backend URL or CORS.");
+        console.error("Error fetching stocks:", err);
+        setError(
+          "Failed to fetch stock data. Check backend URL, CORS, or API status."
+        );
       } finally {
         setLoading(false);
       }
     };
+
     fetchStocks();
   }, []);
 
