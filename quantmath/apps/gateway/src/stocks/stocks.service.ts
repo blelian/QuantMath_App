@@ -5,16 +5,14 @@ import { StockDto } from './dto/stock.dto';
 @Injectable()
 export class StocksService {
   private readonly apiKey = process.env.TWELVEDATA_KEY;
+  private readonly symbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
 
-  // Default symbols
-  private readonly defaultSymbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
-
-  // Cache to reduce requests
   private lastResults: StockDto[] = [];
   private lastFetchTime = 0;
   private cacheDuration = 60 * 1000; // 1 minute
+  private maxRetries = 3;
 
-  async findAll(symbols?: string[]): Promise<StockDto[]> {
+  async findAll(): Promise<StockDto[]> {
     if (!this.apiKey) {
       throw new HttpException(
         'Twelve Data API key not set',
@@ -24,34 +22,41 @@ export class StocksService {
 
     const now = Date.now();
     if (this.lastResults.length && now - this.lastFetchTime < this.cacheDuration) {
+      console.log('Returning cached stock data');
       return this.lastResults;
     }
 
     const results: StockDto[] = [];
-    const fetchSymbols = symbols && symbols.length ? symbols : this.defaultSymbols;
 
-    for (const symbol of fetchSymbols) {
-      try {
-        // Using 'quote' endpoint to get price and timestamp
-        const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${this.apiKey}`;
-        const response = await axios.get(url);
+    for (const symbol of this.symbols) {
+      let success = false;
+      for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+        try {
+          const url = `https://api.twelvedata.com/price?symbol=${symbol}&apikey=${this.apiKey}`;
+          const response = await axios.get(url);
 
-        console.log(`Twelve Data response for ${symbol}:`, response.data);
-
-        const quote = response.data;
-        if (quote && quote.price) {
-          results.push({
-            symbol,
-            price: parseFloat(quote.price),
-            updatedAt: quote.timestamp ? new Date(parseInt(quote.timestamp) * 1000) : new Date(),
-          });
-        } else if (quote.message) {
-          console.warn(`API error for ${symbol}: ${quote.message}`);
-        } else {
-          console.warn(`No data for symbol: ${symbol}`);
+          const price = parseFloat(response.data.price);
+          if (!isNaN(price)) {
+            results.push({
+              symbol,
+              price,
+              updatedAt: new Date(),
+            });
+            success = true;
+            break; // exit retry loop
+          } else {
+            console.warn(`No valid price for ${symbol} (attempt ${attempt})`);
+          }
+        } catch (err: any) {
+          console.error(`Failed to fetch ${symbol} (attempt ${attempt}):`, err.message);
+          await new Promise(res => setTimeout(res, 500)); // wait 0.5s before retry
         }
-      } catch (err: any) {
-        console.error(`Failed to fetch ${symbol}:`, err.message);
+      }
+
+      if (!success) {
+        console.warn(`Using cached data for ${symbol} if available`);
+        const cached = this.lastResults.find(r => r.symbol === symbol);
+        if (cached) results.push(cached);
       }
     }
 
@@ -61,10 +66,14 @@ export class StocksService {
       return results;
     }
 
-    if (this.lastResults.length) return this.lastResults;
+    // If no results and no cache
+    if (this.lastResults.length) {
+      console.log('Returning previous cached data due to API failure');
+      return this.lastResults;
+    }
 
     throw new HttpException(
-      'Failed to fetch stock data from Twelve Data',
+      'Failed to fetch stock data from Twelve Data after retries',
       HttpStatus.SERVICE_UNAVAILABLE,
     );
   }
