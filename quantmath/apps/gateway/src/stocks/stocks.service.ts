@@ -4,7 +4,7 @@ import { StockDto } from './dto/stock.dto';
 
 @Injectable()
 export class StocksService {
-  private readonly apiKey = process.env.ALPHA_VANTAGE_KEY;
+  private readonly apiKey = process.env.FCSAPI_KEY; // Use FCSAPI key
 
   // Symbols to fetch
   private readonly symbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
@@ -17,7 +17,7 @@ export class StocksService {
   async findAll(): Promise<StockDto[]> {
     if (!this.apiKey) {
       throw new HttpException(
-        'Alpha Vantage API key not set',
+        'FCSAPI key not set',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -32,20 +32,19 @@ export class StocksService {
 
     for (const symbol of this.symbols) {
       try {
-        const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${this.apiKey}`;
+        const url = `https://fcsapi.com/api-v3/forex/latest?symbol=${symbol}&access_key=${this.apiKey}`;
         const response = await axios.get(url);
 
-        console.log(`Alpha Vantage response for ${symbol}:`, response.data);
+        console.log(`FCSAPI response for ${symbol}:`, response.data);
 
-        const data = response.data['Global Quote'];
-        if (data && data['01. symbol'] && data['05. price']) {
+        // Example FCSAPI response: data.response[0] = {symbol, price, date}
+        const stockData = response.data?.response?.[0];
+        if (stockData && stockData.symbol && stockData.price) {
           results.push({
-            symbol: data['01. symbol'],
-            price: parseFloat(data['05. price']),
-            updatedAt: new Date(data['07. latest trading day']),
+            symbol: stockData.symbol,
+            price: parseFloat(stockData.price),
+            updatedAt: new Date(stockData.date),
           });
-        } else if (response.data['Note']) {
-          console.warn(`Rate limit hit: ${response.data['Note']}`);
         } else {
           console.warn(`No data found for symbol: ${symbol}`);
         }
@@ -54,23 +53,20 @@ export class StocksService {
       }
     }
 
-    // Only update cache if we got results
     if (results.length) {
       this.lastResults = results;
       this.lastFetchTime = Date.now();
       return results;
     }
 
-    // If API failed but we have previous data, return that
     if (this.lastResults.length) {
-      console.log('Returning previous cached data due to API failure or rate limit');
+      console.log('Returning previous cached data due to API failure');
       return this.lastResults;
     }
 
-    // If no previous data, throw error
     throw new HttpException(
-      'Failed to fetch stock data or rate limit exceeded',
-      HttpStatus.TOO_MANY_REQUESTS,
+      'Failed to fetch stock data from FCSAPI',
+      HttpStatus.SERVICE_UNAVAILABLE,
     );
   }
 }
