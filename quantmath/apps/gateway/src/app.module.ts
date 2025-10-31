@@ -2,19 +2,23 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StocksModule } from './stocks/stocks.module';
 import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // allows access to process.env throughout the app
+      isGlobal: true,
     }),
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
-      autoLoadEntities: true, // automatically loads all entities registered in modules
-      synchronize: true, // only for development; disables in production
+      autoLoadEntities: true,
+      synchronize: true,
     }),
     StocksModule,
   ],
+  controllers: [AppController],  
+  providers: [AppService],       
 })
 export class AppModule {}
