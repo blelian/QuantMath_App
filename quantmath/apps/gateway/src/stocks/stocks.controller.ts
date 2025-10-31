@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
 import { StocksService, StockDto } from './stocks.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
@@ -12,9 +12,23 @@ export class StocksController {
   @ApiResponse({
     status: 200,
     description: 'List of stocks returned successfully.',
-    type: [Object], // You can also create a Swagger StockDto class for better docs
+    type: [StockDto],
   })
-  findAll(): Promise<StockDto[]> {
-    return this.stocksService.findAll();
+  @ApiResponse({
+    status: 429,
+    description: 'Rate limit exceeded. Please try again later.',
+  })
+  async findAll(): Promise<StockDto[]> {
+    const stocks = await this.stocksService.findAll();
+
+    if (!stocks.length) {
+      // Could be rate-limited or API error
+      throw new HttpException(
+        'Failed to fetch stock data or rate limit exceeded',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    return stocks;
   }
 }
