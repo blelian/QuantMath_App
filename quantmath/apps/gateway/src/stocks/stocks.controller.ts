@@ -1,5 +1,6 @@
 import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
-import { StocksService, StockDto } from './stocks.service';
+import { StocksService } from './stocks.service';
+import { StockDto } from './dto/stock.dto';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 @ApiTags('stocks')
@@ -22,7 +23,6 @@ export class StocksController {
     const stocks = await this.stocksService.findAll();
 
     if (!stocks.length) {
-      // Could be rate-limited or API error
       throw new HttpException(
         'Failed to fetch stock data or rate limit exceeded',
         HttpStatus.TOO_MANY_REQUESTS,

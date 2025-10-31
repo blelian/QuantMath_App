@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { StocksModule } from './stocks/stocks.module';
 import { ConfigModule } from '@nestjs/config';
+import { StocksModule } from './stocks/stocks.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -14,7 +14,7 @@ import { AppService } from './app.service';
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production', // safer for prod
+      synchronize: false, // production safe
     }),
     StocksModule,
   ],

@@ -1,18 +1,15 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import axios from 'axios';
-
-export interface StockDto {
-  symbol: string;
-  price: number;
-  updatedAt: Date;
-}
+import { StockDto } from './dto/stock.dto';
 
 @Injectable()
 export class StocksService {
   private readonly apiKey = process.env.ALPHA_VANTAGE_KEY;
+
+  // Symbols to fetch
   private readonly symbols = ['AAPL', 'GOOG', 'MSFT', 'TSLA'];
 
-  // Optional: cache last successful fetch to avoid rate limits
+  // Cache last successful fetch to avoid rate limits
   private lastResults: StockDto[] = [];
   private lastFetchTime: number = 0;
   private cacheDuration = 60 * 1000; // 1 minute
@@ -25,7 +22,6 @@ export class StocksService {
       );
     }
 
-    // Return cached results if within cache duration
     const now = Date.now();
     if (this.lastResults.length && now - this.lastFetchTime < this.cacheDuration) {
       console.log('Returning cached stock data');
@@ -39,7 +35,6 @@ export class StocksService {
         const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${this.apiKey}`;
         const response = await axios.get(url);
 
-        // Debug: log full API response on Render
         console.log(`Alpha Vantage response for ${symbol}:`, response.data);
 
         const data = response.data['Global Quote'];
@@ -54,7 +49,7 @@ export class StocksService {
         } else {
           console.warn(`No data found for symbol: ${symbol}`);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Failed to fetch data for ${symbol}:`, err.message);
       }
     }
