@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
@@ -13,25 +13,30 @@ export class StocksService {
   private readonly maxRetries = 3;
   private readonly logger = new Logger(StocksService.name);
 
+  // Simple in-memory cache for AI predictions
+  private predictions: Record<string, number> = {};
+
   constructor(
     @InjectRepository(StockEntity)
     private readonly stockRepo: Repository<StockEntity>,
   ) {}
 
   /** 
-   * Fetch stock data for clients from DB
+   * Fetch stock data for clients including AI predictions
    */
-  async findAll(): Promise<StockDto[]> {
+  async findAll(): Promise<(StockDto & { prediction?: number })[]> {
     const stocks = await this.stockRepo.find();
     return stocks.map((s) => ({
       symbol: s.symbol,
       price: s.price,
       updatedAt: s.updatedAt,
+      prediction: this.predictions[s.symbol],
     }));
   }
 
   /**
    * Scheduled job: fetch stock prices from Twelve Data API every 5 minutes
+   * and update AI predictions from FastAPI
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async updateStocksFromAPI() {
@@ -75,6 +80,35 @@ export class StocksService {
       if (!success) {
         this.logger.warn(`Failed to update ${symbol} after ${this.maxRetries} attempts`);
       }
+    }
+
+    // After updating prices, fetch AI predictions from FastAPI
+    await this.updatePredictions();
+  }
+
+  /**
+   * Fetch AI predictions from FastAPI
+   */
+  private async updatePredictions() {
+    try {
+      const fastApiUrl = process.env.FASTAPI_URL || 'http://fastapi:8000/predict';
+      const stocks = await this.stockRepo.findByIds(this.symbols);
+
+      const payload = stocks.map((s) => ({ symbol: s.symbol, price: s.price }));
+
+      const response = await axios.post(fastApiUrl, payload);
+
+      if (Array.isArray(response.data)) {
+        this.predictions = response.data.reduce((acc, curr) => {
+          acc[curr.symbol] = curr.predicted_price;
+          return acc;
+        }, {} as Record<string, number>);
+        this.logger.log('AI predictions updated successfully');
+      } else {
+        this.logger.warn('FastAPI returned unexpected response format');
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch AI predictions: ${err.message}`);
     }
   }
 }

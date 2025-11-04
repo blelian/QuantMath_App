@@ -1,21 +1,29 @@
-# main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 import asyncpg
 import os
+import numpy as np
+import tensorflow as tf
 from dotenv import load_dotenv
 
-# Load .env
+# Load environment variables
 load_dotenv()
 
 app = FastAPI(title="QuantMath AI Service")
 
-# Database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL")
+MODEL_PATH = os.getenv("MODEL_PATH", "tf_model")  # TensorFlow SavedModel directory
 
-# Global connection pool
 db_pool: asyncpg.pool.Pool = None
+
+# Load TensorFlow model
+try:
+    model = tf.keras.models.load_model(MODEL_PATH)
+    print("TensorFlow model loaded successfully")
+except Exception as e:
+    print(f"Failed to load TensorFlow model: {e}")
+    raise e
 
 # Data models
 class StockData(BaseModel):
@@ -26,7 +34,7 @@ class StockPrediction(BaseModel):
     symbol: str
     predicted_price: float
 
-# Startup: create DB pool
+# Startup / Shutdown
 @app.on_event("startup")
 async def startup():
     global db_pool
@@ -37,7 +45,6 @@ async def startup():
         print(f"Failed to create database pool: {e}")
         raise e
 
-# Shutdown: close pool
 @app.on_event("shutdown")
 async def shutdown():
     global db_pool
@@ -45,7 +52,7 @@ async def shutdown():
         await db_pool.close()
         print("Database pool closed")
 
-# Fetch stock data from DB
+# Fetch stocks from DB
 async def fetch_stocks(limit: int = 10):
     global db_pool
     if not db_pool:
@@ -57,24 +64,39 @@ async def fetch_stocks(limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
 
-# Root endpoint
+# Root
 @app.get("/")
 def read_root():
-    return {"message": "FastAPI backend is running!"}
+    return {"message": "FastAPI AI backend with TensorFlow is running!"}
 
-# GET endpoint: fetch from DB and predict
+# Predict from DB
 @app.get("/predict_db", response_model=List[StockPrediction])
 async def predict_from_db(limit: int = 10):
     data = await fetch_stocks(limit)
-    # Placeholder AI logic
-    predictions = [{"symbol": stock["symbol"], "predicted_price": stock["price"] * 1.01} for stock in data]
-    return predictions
+    if not data:
+        return []
 
-# POST endpoint: client sends data for prediction
+    try:
+        prices = np.array([stock["price"] for stock in data]).reshape(-1, 1)
+        predicted_prices = model.predict(prices).flatten()
+        return [
+            {"symbol": stock["symbol"], "predicted_price": float(pred)}
+            for stock, pred in zip(data, predicted_prices)
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+
+# Predict from client data
 @app.post("/predict", response_model=List[StockPrediction])
 async def predict_from_client(data: List[StockData]):
+    if not data:
+        raise HTTPException(status_code=400, detail="No data provided")
     try:
-        predictions = [{"symbol": stock.symbol, "predicted_price": stock.price * 1.01} for stock in data]
-        return predictions
+        prices = np.array([stock.price for stock in data]).reshape(-1, 1)
+        predicted_prices = model.predict(prices).flatten()
+        return [
+            {"symbol": stock.symbol, "predicted_price": float(pred)}
+            for stock, pred in zip(data, predicted_prices)
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
