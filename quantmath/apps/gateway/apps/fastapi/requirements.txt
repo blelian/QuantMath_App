@@ -3,5 +3,6 @@ uvicorn[standard]
 asyncpg
 python-dotenv
 numpy
+tensorflow
 pandas
 scikit-learn

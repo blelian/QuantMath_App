@@ -6,14 +6,14 @@ import os
 import numpy as np
 import tensorflow as tf
 from dotenv import load_dotenv
+import ssl
 
-# Load environment variables
 load_dotenv()
 
 app = FastAPI(title="QuantMath AI Service")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "tf_model")  # TensorFlow SavedModel directory
+MODEL_PATH = os.getenv("MODEL_PATH", "tf_model")
 
 db_pool: asyncpg.pool.Pool = None
 
@@ -39,7 +39,13 @@ class StockPrediction(BaseModel):
 async def startup():
     global db_pool
     try:
-        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        db_pool = await asyncpg.create_pool(
+            DATABASE_URL, min_size=1, max_size=10, ssl=ssl_context
+        )
         print("Database pool created successfully")
     except Exception as e:
         print(f"Failed to create database pool: {e}")
