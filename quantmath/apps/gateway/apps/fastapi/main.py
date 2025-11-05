@@ -1,5 +1,6 @@
 # main.py
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncpg
@@ -15,8 +16,23 @@ load_dotenv()
 
 app = FastAPI(title="QuantMath AI Service")
 
+# ===== CORS CONFIGURATION =====
+origins = [
+    "https://quant-math-app.vercel.app",  # your deployed frontend
+    "http://localhost:3000",              # local dev
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ===== ENV VARS =====
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # preferred native Keras format
+MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")
 MODEL_H5 = "model.h5"
 SCALER_PATH = "scaler.pkl"
 
@@ -25,7 +41,7 @@ model = None
 scaler = None
 loaded_model_path = None
 
-# Helper: list files in cwd for debugging
+# Helper: list files
 def list_files():
     try:
         items = os.listdir(".")
@@ -35,7 +51,7 @@ def list_files():
 
 list_files()
 
-# Try load scaler
+# Load scaler
 if os.path.exists(SCALER_PATH):
     try:
         scaler = joblib.load(SCALER_PATH)
@@ -43,7 +59,7 @@ if os.path.exists(SCALER_PATH):
     except Exception as e:
         print("⚠️ Failed to load scaler:", e)
 
-# Attempt to load model (try MODEL_PATH, fallback to model.h5) with compile=False (safe)
+# Load model
 def try_load_model():
     global model, loaded_model_path
     candidate_paths = [MODEL_PATH, MODEL_H5]
@@ -65,7 +81,7 @@ def try_load_model():
 
 try_load_model()
 
-# Data models
+# ===== DATA MODELS =====
 class StockData(BaseModel):
     symbol: str
     price: float
@@ -74,7 +90,7 @@ class StockPrediction(BaseModel):
     symbol: str
     predicted_price: float
 
-# Startup / Shutdown
+# ===== STARTUP / SHUTDOWN =====
 @app.on_event("startup")
 async def startup():
     global db_pool
@@ -103,7 +119,7 @@ async def shutdown():
         await db_pool.close()
         print("🛑 Database pool closed")
 
-# Fetch stocks from DB
+# ===== DB FETCH =====
 async def fetch_stocks(limit: int = 10):
     global db_pool
     if not db_pool:
@@ -115,6 +131,7 @@ async def fetch_stocks(limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
 
+# ===== ROUTES =====
 @app.get("/")
 def read_root():
     return {
@@ -123,7 +140,6 @@ def read_root():
         "model_path": loaded_model_path,
     }
 
-# Predict from DB
 @app.get("/predict_db", response_model=List[StockPrediction])
 async def predict_from_db(limit: int = 10):
     if model is None:
@@ -136,7 +152,6 @@ async def predict_from_db(limit: int = 10):
         if scaler is not None:
             prices = scaler.transform(prices)
         preds = model.predict(prices, verbose=0).flatten()
-        # If you saved scaler for y, you'd inverse transform here; for simple model we return raw preds
         return [
             {"symbol": stock["symbol"], "predicted_price": float(pred)}
             for stock, pred in zip(data, preds)
@@ -144,7 +159,6 @@ async def predict_from_db(limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
 
-# Predict from client POST data
 @app.post("/predict", response_model=List[StockPrediction])
 async def predict_from_client(data: List[StockData]):
     if model is None:
