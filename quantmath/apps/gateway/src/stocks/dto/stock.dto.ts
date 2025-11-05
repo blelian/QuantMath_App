@@ -1,3 +1,4 @@
+// quantmath/apps/gateway/src/stocks/dto/stock.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 
 export class StockDto {

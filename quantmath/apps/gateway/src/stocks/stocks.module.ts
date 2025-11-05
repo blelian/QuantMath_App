@@ -1,3 +1,4 @@
+// src/stocks/stocks.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StocksService } from './stocks.service';
@@ -7,8 +8,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StockEntity]), // <-- this makes the repository injectable
-    ScheduleModule.forRoot(), // if you want cron jobs
+    TypeOrmModule.forFeature([StockEntity]),
+    ScheduleModule.forRoot(),
   ],
   providers: [StocksService],
   controllers: [StocksController],

@@ -1,3 +1,4 @@
+// quantmath/apps/gateway/src/stocks/stocks.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,16 +14,15 @@ export class StocksService {
   private readonly maxRetries = 3;
   private readonly logger = new Logger(StocksService.name);
 
-  // Simple in-memory cache for AI predictions
-  private predictions: Record<string, number> = {};
+  private predictions: Record<string, number> = {}; // In-memory cache
 
   constructor(
     @InjectRepository(StockEntity)
     private readonly stockRepo: Repository<StockEntity>,
   ) {}
 
-  /** 
-   * Fetch stock data for clients including AI predictions
+  /**
+   * Fetch all stocks with AI predictions
    */
   async findAll(): Promise<(StockDto & { prediction?: number })[]> {
     const stocks = await this.stockRepo.find();
@@ -35,11 +35,18 @@ export class StocksService {
   }
 
   /**
-   * Scheduled job: fetch stock prices from Twelve Data API every 5 minutes
-   * and update AI predictions from FastAPI
+   * Cron job: every 5 min update stock prices and AI predictions
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async updateStocksFromAPI() {
+    await this.fetchStockPrices();
+    await this.updatePredictions();
+  }
+
+  /**
+   * Fetch stock prices from Twelve Data API
+   */
+  private async fetchStockPrices() {
     if (!this.apiKey) {
       this.logger.warn('Twelve Data API key not set. Skipping update.');
       return;
@@ -47,7 +54,6 @@ export class StocksService {
 
     for (const symbol of this.symbols) {
       let success = false;
-
       for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
         try {
           const url = `https://api.twelvedata.com/price?symbol=${symbol}&apikey=${this.apiKey}`;
@@ -55,8 +61,7 @@ export class StocksService {
           const price = parseFloat(response.data.price);
 
           if (!isNaN(price)) {
-            let stock = await this.stockRepo.findOneBy({ symbol });
-
+            let stock = await this.stockRepo.findOne({ where: { symbol } });
             if (!stock) {
               stock = this.stockRepo.create({ symbol, price, updatedAt: new Date() });
             } else {
@@ -68,12 +73,10 @@ export class StocksService {
             success = true;
             this.logger.log(`Updated ${symbol} price to ${price}`);
             break;
-          } else {
-            this.logger.warn(`Invalid price for ${symbol} (attempt ${attempt})`);
           }
         } catch (err: any) {
           this.logger.warn(`Failed to fetch ${symbol} (attempt ${attempt}): ${err.message}`);
-          await new Promise((res) => setTimeout(res, 500)); // 0.5s delay before retry
+          await new Promise((res) => setTimeout(res, 500)); // 0.5s delay
         }
       }
 
@@ -81,21 +84,19 @@ export class StocksService {
         this.logger.warn(`Failed to update ${symbol} after ${this.maxRetries} attempts`);
       }
     }
-
-    // After updating prices, fetch AI predictions from FastAPI
-    await this.updatePredictions();
   }
 
   /**
    * Fetch AI predictions from FastAPI
    */
-  private async updatePredictions() {
+  async updatePredictions(): Promise<void> {
     try {
-      const fastApiUrl = process.env.FASTAPI_URL || 'http://fastapi:8000/predict';
+      const fastApiUrl =
+        process.env.FASTAPI_URL || 'https://quantmath-app-1fastapi.onrender.com/predict';
+
       const stocks = await this.stockRepo.findByIds(this.symbols);
 
       const payload = stocks.map((s) => ({ symbol: s.symbol, price: s.price }));
-
       const response = await axios.post(fastApiUrl, payload);
 
       if (Array.isArray(response.data)) {
@@ -103,12 +104,21 @@ export class StocksService {
           acc[curr.symbol] = curr.predicted_price;
           return acc;
         }, {} as Record<string, number>);
-        this.logger.log('AI predictions updated successfully');
+        this.logger.log('✅ AI predictions updated successfully');
       } else {
         this.logger.warn('FastAPI returned unexpected response format');
       }
     } catch (err: any) {
       this.logger.warn(`Failed to fetch AI predictions: ${err.message}`);
     }
+  }
+
+  /**
+   * Manually trigger AI predictions (for frontend "Run AI" button)
+   */
+  async runAIPredictions(): Promise<(StockDto & { prediction?: number })[]> {
+    await this.fetchStockPrices(); // optional: refresh prices before prediction
+    await this.updatePredictions();
+    return this.findAll();
   }
 }

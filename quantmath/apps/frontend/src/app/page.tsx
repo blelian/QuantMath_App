@@ -1,10 +1,10 @@
+// src/app/page.tsx (or Home.tsx)
 "use client";
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { StockData, StockPrediction } from "../types"; // Optional: define types in separate file
 
-// Define OHLCData for cached history
 interface OHLCData {
   time: string;
   open: number;
@@ -13,7 +13,6 @@ interface OHLCData {
   close: number;
 }
 
-// Dynamically import chart to avoid SSR issues
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
 export default function Home() {
@@ -33,10 +32,13 @@ export default function Home() {
   const [outputVisible, setOutputVisible] = useState(false);
   const [aiVisible, setAIVisible] = useState(false);
 
+  // Animate input panel
   useEffect(() => {
-    setTimeout(() => setInputVisible(true), 100);
+    const timer: ReturnType<typeof setTimeout> = setTimeout(() => setInputVisible(true), 100);
+    return () => clearTimeout(timer);
   }, []);
 
+  // Fetch cached stocks
   useEffect(() => {
     const fetchStocks = async () => {
       try {
@@ -60,7 +62,6 @@ export default function Home() {
     if (selectedStock) {
       setPrice(selectedStock.price);
 
-      // Transform OHLCData to ApexCharts candlestick format
       const ohlcData = (selectedStock.history || []).map((item) => ({
         x: item.time,
         y: [item.open, item.high, item.low, item.close] as [number, number, number, number],
@@ -68,7 +69,8 @@ export default function Home() {
       setChartData(ohlcData);
 
       setShowOutput(true);
-      setTimeout(() => setOutputVisible(true), 200);
+      const timer: ReturnType<typeof setTimeout> = setTimeout(() => setOutputVisible(true), 200);
+      return () => clearTimeout(timer);
     }
   };
 
@@ -85,7 +87,9 @@ export default function Home() {
       const [prediction]: StockPrediction[] = await res.json();
       setAiPrediction(prediction);
       setShowAI(true);
-      setTimeout(() => setAIVisible(true), 200);
+
+      const timer: ReturnType<typeof setTimeout> = setTimeout(() => setAIVisible(true), 200);
+      return () => clearTimeout(timer);
     } catch (err) {
       console.error("AI prediction failed:", err);
     }
@@ -178,15 +182,12 @@ export default function Home() {
               <strong>Price:</strong> ${price?.toFixed(2)}
             </p>
 
-            {/* Candlestick chart */}
             {chartData.length > 0 && (
               <Chart
                 type="candlestick"
                 height={300}
                 series={[
-                  {
-                    data: chartData,
-                  },
+                  { data: chartData },
                   ...(aiPrediction
                     ? [
                         {
