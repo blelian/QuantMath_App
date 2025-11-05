@@ -1,40 +1,49 @@
-// src/app/page.tsx (or Home.tsx)
 "use client";
 
+/**
+ * src/app/page.tsx
+ * Home component with:
+ *  - Compute & AI prediction buttons
+ *  - Candlestick chart + AI line
+ *  - Correct TypeScript types & ApexCharts config
+ *  - Smooth animations
+ */
+
+import * as React from "react"; // <-- ensures JSX namespace exists
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { StockData, StockPrediction } from "../types"; // Optional: define types in separate file
+import type { StockData, StockPrediction } from "../types";
+import type { ApexOptions } from "apexcharts";
 
-interface OHLCData {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
+// Augmented StockPrediction to allow missing backend fields
+type StockPredictionAug = StockPrediction & {
+  signal?: "BUY" | "SELL" | "HOLD" | string;
+  confidence?: number;
+};
 
+// Dynamically load chart (no SSR)
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
-export default function Home() {
-  const [stocks, setStocks] = useState<StockData[]>([]);
+export default function Home(): React.JSX.Element {
+  const [stocks, setStocks] = useState<(StockData & { history?: StockData["history"] })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [stockSymbol, setStockSymbol] = useState("");
   const [quantity, setQuantity] = useState<number | "">("");
   const [price, setPrice] = useState<number | null>(null);
-  const [aiPrediction, setAiPrediction] = useState<StockPrediction | null>(null);
-  const [chartData, setChartData] = useState<{ x: string; y: [number, number, number, number] }[]>([]);
+  const [aiPrediction, setAiPrediction] = useState<StockPredictionAug | null>(null);
 
+  const [chartData, setChartData] = useState<{ x: string; y: [number, number, number, number] }[]>([]);
   const [showOutput, setShowOutput] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [inputVisible, setInputVisible] = useState(false);
   const [outputVisible, setOutputVisible] = useState(false);
   const [aiVisible, setAIVisible] = useState(false);
 
-  // Animate input panel
+  // Input panel entrance animation
   useEffect(() => {
-    const timer: ReturnType<typeof setTimeout> = setTimeout(() => setInputVisible(true), 100);
+    const timer = setTimeout(() => setInputVisible(true), 100);
     return () => clearTimeout(timer);
   }, []);
 
@@ -42,13 +51,17 @@ export default function Home() {
   useEffect(() => {
     const fetchStocks = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/stocks/cached`);
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-        const data: (StockData & { history?: OHLCData[] })[] = await res.json();
+        const backend = process.env.NEXT_PUBLIC_BACKEND_URLAI ?? "";
+        if (!backend) throw new Error("NEXT_PUBLIC_BACKEND_URLAI not set");
+
+        const res = await fetch(`${backend}/stocks/cached`);
+        if (!res.ok) throw new Error(`Failed to fetch stocks: ${res.status}`);
+
+        const data: (StockData & { history?: StockData["history"] })[] = await res.json();
         setStocks(data);
       } catch (err) {
         console.error(err);
-        setError("Failed to fetch precached stock data.");
+        setError("Failed to fetch stocks. Check backend URL.");
       } finally {
         setLoading(false);
       }
@@ -56,43 +69,82 @@ export default function Home() {
     fetchStocks();
   }, []);
 
+  // Compute: fill price & chart data
   const handleCompute = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedStock = stocks.find((s) => s.symbol === stockSymbol);
-    if (selectedStock) {
-      setPrice(selectedStock.price);
+    const stock = stocks.find((s) => s.symbol === stockSymbol);
+    if (!stock) {
+      setError("Select a valid stock before computing.");
+      return;
+    }
+    setError(null);
+    setPrice(stock.price);
 
-      const ohlcData = (selectedStock.history || []).map((item) => ({
-        x: item.time,
-        y: [item.open, item.high, item.low, item.close] as [number, number, number, number],
-      }));
-      setChartData(ohlcData);
+    const ohlc = (stock.history || []).map((h) => ({
+      x: h.time,
+      y: [h.open, h.high, h.low, h.close] as [number, number, number, number],
+    }));
+    setChartData(ohlc);
+    setShowOutput(true);
 
-      setShowOutput(true);
-      const timer: ReturnType<typeof setTimeout> = setTimeout(() => setOutputVisible(true), 200);
+    const timer = setTimeout(() => setOutputVisible(true), 200);
+    return () => clearTimeout(timer);
+  };
+
+  // AI prediction
+  const handleAIPredict = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stockSymbol) {
+      setError("Select a stock to predict.");
+      return;
+    }
+
+    const stock = stocks.find((s) => s.symbol === stockSymbol);
+    const usedPrice = price ?? stock?.price ?? null;
+    if (usedPrice === null) {
+      setError("Price not available. Press Compute or check stock.");
+      return;
+    }
+
+    setError(null);
+    try {
+      const backend = process.env.NEXT_PUBLIC_BACKEND_URLAI ?? "";
+      if (!backend) throw new Error("NEXT_PUBLIC_BACKEND_URLAI not set");
+
+      const res = await fetch(`${backend}/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([{ symbol: stockSymbol, price: usedPrice }]),
+      });
+      if (!res.ok) throw new Error(`Prediction failed: ${res.status}`);
+
+      const resp = await res.json();
+      const [pred] = Array.isArray(resp) ? resp : [resp];
+
+      const safePred: StockPredictionAug = {
+        symbol: pred?.symbol ?? stockSymbol,
+        predicted_price: Number(pred?.predicted_price ?? usedPrice),
+        signal: pred?.signal ?? deriveSignal(Number(pred?.predicted_price ?? usedPrice), usedPrice),
+        confidence: typeof pred?.confidence === "number" ? pred.confidence : 50,
+      };
+
+      setAiPrediction(safePred);
+      setShowAI(true);
+
+      const timer = setTimeout(() => setAIVisible(true), 200);
       return () => clearTimeout(timer);
+    } catch (err) {
+      console.error(err);
+      setError("AI prediction failed. Check backend logs or network.");
     }
   };
 
-  const handleAIPredict = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!price || !stockSymbol) return;
-
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify([{ symbol: stockSymbol, price }]),
-      });
-      const [prediction]: StockPrediction[] = await res.json();
-      setAiPrediction(prediction);
-      setShowAI(true);
-
-      const timer: ReturnType<typeof setTimeout> = setTimeout(() => setAIVisible(true), 200);
-      return () => clearTimeout(timer);
-    } catch (err) {
-      console.error("AI prediction failed:", err);
-    }
+  // Naive signal derivation
+  const deriveSignal = (pred: number, curr: number) => {
+    const pct = ((pred - curr) / curr) * 100;
+    if (pct >= 1) return "BUY";
+    if (pct <= -1) return "SELL";
+    return "HOLD";
   };
 
   const signalColor = (signal?: string) => {
@@ -108,10 +160,33 @@ export default function Home() {
     }
   };
 
+  // ApexCharts series
+  const series = [
+    { name: "Price", type: "candlestick" as const, data: chartData },
+    ...(aiPrediction && chartData.length > 0
+      ? [
+          {
+            name: "AI Prediction",
+            type: "line" as const,
+            data: chartData.map((c) => ({ x: c.x, y: aiPrediction.predicted_price })),
+          },
+        ]
+      : []),
+  ];
+
+  const chartOptions: ApexOptions = {
+    chart: { id: "stock-chart", animations: { enabled: true } },
+    xaxis: { type: "category" },
+    yaxis: { tooltip: { enabled: true } },
+    tooltip: { enabled: true },
+    theme: { mode: "dark" }, // cast fixed by `as const` on type above
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#0b0c1b] to-[#1a1c2e] text-[#E0F7FA] font-sans overflow-x-hidden">
       <header className="text-center p-6 bg-[rgba(10,10,30,0.8)] backdrop-blur-md border-b border-[#00E5FF]">
         <h1 className="text-3xl font-bold">QuantMath Stock Dashboard</h1>
+        <p className="text-sm mt-1 text-[#BEEAF6]">AI predictions powered by TensorFlow + FastAPI</p>
       </header>
 
       <section className="container flex flex-wrap justify-center gap-8 p-8">
@@ -126,15 +201,11 @@ export default function Home() {
           {loading ? (
             <p>Loading stocks...</p>
           ) : error ? (
-            <p className="text-red-500">{error}</p>
+            <p className="text-red-400">{error}</p>
           ) : (
             <form onSubmit={handleCompute} className="flex flex-col gap-4">
               <label htmlFor="symbol">Stock Symbol</label>
-              <select
-                id="symbol"
-                value={stockSymbol}
-                onChange={(e) => setStockSymbol(e.target.value)}
-              >
+              <select id="symbol" value={stockSymbol} onChange={(e) => setStockSymbol(e.target.value)}>
                 <option value="">Select stock</option>
                 {stocks.map((s) => (
                   <option key={s.symbol} value={s.symbol}>
@@ -149,17 +220,26 @@ export default function Home() {
                 id="quantity"
                 placeholder="e.g. 100"
                 value={quantity}
-                onChange={(e) =>
-                  setQuantity(e.target.value ? parseInt(e.target.value) : "")
-                }
+                onChange={(e) => setQuantity(e.target.value ? parseInt(e.target.value) : "")}
               />
 
-              <button
-                type="submit"
-                className="bg-[rgba(0,229,255,0.2)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.4)] hover:scale-105 transition-all"
-              >
-                Compute
-              </button>
+              <div className="flex gap-3 mt-2">
+                <button
+                  type="submit"
+                  className="flex-1 bg-[rgba(0,229,255,0.2)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.4)] hover:scale-105 transition-all"
+                >
+                  Compute
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAIPredict}
+                  disabled={!stockSymbol || (!price && !stocks.find((s) => s.symbol === stockSymbol))}
+                  className="flex-1 disabled:opacity-50 disabled:cursor-not-allowed bg-[rgba(0,229,255,0.15)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.35)] hover:scale-105 transition-all"
+                >
+                  Run AI Prediction
+                </button>
+              </div>
             </form>
           )}
         </div>
@@ -176,44 +256,17 @@ export default function Home() {
               <strong>Stock:</strong> {stockSymbol}
             </p>
             <p>
-              <strong>Quantity:</strong> {quantity}
+              <strong>Quantity:</strong> {quantity || "—"}
             </p>
             <p>
-              <strong>Price:</strong> ${price?.toFixed(2)}
+              <strong>Price:</strong> ${price !== null ? price.toFixed(2) : "—"}
             </p>
 
-            {chartData.length > 0 && (
-              <Chart
-                type="candlestick"
-                height={300}
-                series={[
-                  { data: chartData },
-                  ...(aiPrediction
-                    ? [
-                        {
-                          name: "AI Prediction",
-                          type: "line",
-                          data: chartData.map((c) => [c.x, aiPrediction.predicted_price]),
-                        },
-                      ]
-                    : []),
-                ]}
-                options={{
-                  chart: { id: "stock-chart", animations: { enabled: true } },
-                  xaxis: { type: "category" },
-                  yaxis: { tooltip: { enabled: true } },
-                  tooltip: { enabled: true },
-                  theme: { mode: "dark" },
-                }}
-              />
+            {typeof Chart !== "undefined" ? (
+              <Chart type="candlestick" height={350} series={series as any} options={chartOptions} />
+            ) : (
+              <p className="mt-4">Chart not loaded (check package or SSR).</p>
             )}
-
-            <button
-              onClick={handleAIPredict}
-              className="mt-4 bg-[rgba(0,229,255,0.2)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.4)] hover:scale-105 transition-all"
-            >
-              Run AI Prediction
-            </button>
           </div>
         )}
 
@@ -228,24 +281,28 @@ export default function Home() {
             <p>
               <strong>Predicted Price:</strong> ${aiPrediction.predicted_price.toFixed(2)}
             </p>
-            <p>
-              <strong>Signal:</strong>{" "}
+            <p className="flex items-center gap-3 mt-2">
+              <strong>Signal:</strong>
               <span className={`px-2 py-1 rounded ${signalColor(aiPrediction.signal)}`}>
                 {aiPrediction.signal}
               </span>
             </p>
-            <p>
-              <strong>Confidence:</strong>{" "}
-              <span className="block bg-gray-700 rounded h-3 w-full mt-1">
-                <span
-                  className="bg-blue-400 h-3 rounded block"
-                  style={{ width: `${aiPrediction.confidence}%` }}
-                ></span>
-              </span>
+            <p className="mt-3">
+              <strong>Confidence:</strong>
+              <div className="w-full bg-gray-700 rounded h-3 mt-1">
+                <div
+                  className="bg-blue-400 h-3 rounded"
+                  style={{ width: `${Math.max(0, Math.min(100, aiPrediction.confidence ?? 50))}%` }}
+                />
+              </div>
             </p>
           </div>
         )}
       </section>
+
+      <footer className="text-center text-xs text-[#8FDDE8] p-4">
+        Tip: Select a stock, press <strong>Compute</strong> to see chart, then <strong>Run AI Prediction</strong>.
+      </footer>
     </main>
   );
 }
