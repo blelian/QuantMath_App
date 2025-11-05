@@ -1,32 +1,69 @@
+# main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import asyncpg
 import os
 import numpy as np
 import tensorflow as tf
 from dotenv import load_dotenv
 import ssl
+import joblib
+import traceback
 
 load_dotenv()
 
 app = FastAPI(title="QuantMath AI Service")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # <-- native Keras format
+MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # preferred native Keras format
+MODEL_H5 = "model.h5"
+SCALER_PATH = "scaler.pkl"
 
-db_pool: asyncpg.pool.Pool = None
+db_pool: Optional[asyncpg.pool.Pool] = None
 model = None
+scaler = None
+loaded_model_path = None
 
-# Load TensorFlow model safely
-if os.path.exists(MODEL_PATH):
+# Helper: list files in cwd for debugging
+def list_files():
     try:
-        model = tf.keras.models.load_model(MODEL_PATH)
-        print("✅ TensorFlow model loaded successfully")
+        items = os.listdir(".")
+        print("CWD files:", items)
     except Exception as e:
-        print(f"⚠️ Model found but failed to load: {e}")
-else:
-    print("⚠️ No ML model found yet. API will run without predictions.")
+        print("Failed to list files:", e)
+
+list_files()
+
+# Try load scaler
+if os.path.exists(SCALER_PATH):
+    try:
+        scaler = joblib.load(SCALER_PATH)
+        print("✅ Loaded scaler:", SCALER_PATH)
+    except Exception as e:
+        print("⚠️ Failed to load scaler:", e)
+
+# Attempt to load model (try MODEL_PATH, fallback to model.h5) with compile=False (safe)
+def try_load_model():
+    global model, loaded_model_path
+    candidate_paths = [MODEL_PATH, MODEL_H5]
+    for p in candidate_paths:
+        if not p:
+            continue
+        if os.path.exists(p):
+            try:
+                print(f"Attempting to load model from {p} (compile=False)...")
+                model = tf.keras.models.load_model(p, compile=False)
+                loaded_model_path = p
+                print("✅ Model loaded from:", p)
+                return True
+            except Exception as e:
+                print(f"⚠️ Failed to load model from {p}: {e}")
+                traceback.print_exc()
+    print("⚠️ No compatible model loaded.")
+    return False
+
+try_load_model()
 
 # Data models
 class StockData(BaseModel):
@@ -41,6 +78,8 @@ class StockPrediction(BaseModel):
 @app.on_event("startup")
 async def startup():
     global db_pool
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL not provided")
     try:
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
@@ -71,16 +110,18 @@ async def fetch_stocks(limit: int = 10):
         raise HTTPException(status_code=500, detail="Database not initialized")
     try:
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT symbol, price FROM stocks LIMIT $1;", limit
-            )
+            rows = await conn.fetch("SELECT symbol, price FROM stocks LIMIT $1;", limit)
             return [{"symbol": r["symbol"], "price": r["price"]} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
 
 @app.get("/")
 def read_root():
-    return {"message": "FastAPI AI backend with TensorFlow is running!"}
+    return {
+        "message": "FastAPI AI backend with TensorFlow is running!",
+        "model_loaded": loaded_model_path is not None,
+        "model_path": loaded_model_path,
+    }
 
 # Predict from DB
 @app.get("/predict_db", response_model=List[StockPrediction])
@@ -92,10 +133,13 @@ async def predict_from_db(limit: int = 10):
         return []
     try:
         prices = np.array([stock["price"] for stock in data]).reshape(-1, 1)
-        predicted_prices = model.predict(prices, verbose=0).flatten()
+        if scaler is not None:
+            prices = scaler.transform(prices)
+        preds = model.predict(prices, verbose=0).flatten()
+        # If you saved scaler for y, you'd inverse transform here; for simple model we return raw preds
         return [
             {"symbol": stock["symbol"], "predicted_price": float(pred)}
-            for stock, pred in zip(data, predicted_prices)
+            for stock, pred in zip(data, preds)
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
@@ -109,10 +153,12 @@ async def predict_from_client(data: List[StockData]):
         raise HTTPException(status_code=400, detail="No data provided")
     try:
         prices = np.array([stock.price for stock in data]).reshape(-1, 1)
-        predicted_prices = model.predict(prices, verbose=0).flatten()
+        if scaler is not None:
+            prices = scaler.transform(prices)
+        preds = model.predict(prices, verbose=0).flatten()
         return [
             {"symbol": stock.symbol, "predicted_price": float(pred)}
-            for stock, pred in zip(data, predicted_prices)
+            for stock, pred in zip(data, preds)
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
