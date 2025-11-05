@@ -2,7 +2,6 @@ fastapi
 uvicorn[standard]
 asyncpg
 python-dotenv
-tensorflow
 numpy
 pandas
 scikit-learn
