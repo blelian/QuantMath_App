@@ -28,4 +28,4 @@ EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
 
 # Start Uvicorn with FastAPI
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "quantmath.apps.gateway.apps.fastapi.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
