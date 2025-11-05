@@ -18,12 +18,8 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
+# Copy application files (everything in current Root Directory)
 COPY . .
-
-# Ensure TensorFlow model folder is included in Docker context
-# If your model folder is outside this context, adjust the COPY command accordingly:
-# COPY tf_model ./tf_model
 
 # Expose FastAPI port
 EXPOSE 8000
@@ -31,8 +27,5 @@ EXPOSE 8000
 # Environment variable to avoid buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
 
-# Production-ready Uvicorn startup
-# --host 0.0.0.0: listen on all interfaces
-# --port 8000: standard port for Render
-# --workers 1: single worker for now; adjust if needed
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--reload"]
+# Start Uvicorn with FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
