@@ -50,7 +50,11 @@ async def train_model():
         tf.keras.layers.Dense(16, activation="relu"),
         tf.keras.layers.Dense(1)
     ])
-    model.compile(optimizer="adam", loss="mse")
+    model.compile(
+    optimizer="adam",
+    loss="mse",
+    metrics=[tf.keras.metrics.MeanSquaredError()]
+)
 
     # Train
     model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=8)
