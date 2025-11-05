@@ -12,9 +12,9 @@ import ssl
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # <-- use .keras format
+MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # <-- native Keras format
 
-# Async function to fetch historical stock data from Neon
+# Async function to fetch historical stock data
 async def fetch_stock_data():
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -41,7 +41,9 @@ async def train_model():
     y_scaled = scaler.transform(y)
 
     # Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_scaled, y_scaled, test_size=0.2, random_state=42
+    )
 
     # Build model
     model = tf.keras.Sequential([
@@ -50,20 +52,20 @@ async def train_model():
         tf.keras.layers.Dense(16, activation="relu"),
         tf.keras.layers.Dense(1)
     ])
-    # Use Keras metric object instead of string
+
+    # Compile without metrics to avoid HDF5 deserialization issues
     model.compile(
         optimizer="adam",
-        loss="mse",
-        metrics=[tf.keras.metrics.MeanSquaredError()]
+        loss="mse"
     )
 
     # Train
-    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=8)
+    model.fit(X_train, y_train, validation_data=(X_test, y_test),
+              epochs=50, batch_size=8)
 
-    # Save as native Keras format
+    # Save in native Keras format
     model.save(MODEL_PATH)
     print(f"✅ Model saved at {MODEL_PATH}")
 
-# Run training
 if __name__ == "__main__":
     asyncio.run(train_model())

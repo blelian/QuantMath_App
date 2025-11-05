@@ -13,12 +13,12 @@ load_dotenv()
 app = FastAPI(title="QuantMath AI Service")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # <-- use .keras format
+MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # <-- native Keras format
 
 db_pool: asyncpg.pool.Pool = None
 model = None
 
-# Try to load TensorFlow model safely
+# Load TensorFlow model safely
 if os.path.exists(MODEL_PATH):
     try:
         model = tf.keras.models.load_model(MODEL_PATH)
@@ -71,7 +71,9 @@ async def fetch_stocks(limit: int = 10):
         raise HTTPException(status_code=500, detail="Database not initialized")
     try:
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT symbol, price FROM stocks LIMIT $1;", limit)
+            rows = await conn.fetch(
+                "SELECT symbol, price FROM stocks LIMIT $1;", limit
+            )
             return [{"symbol": r["symbol"], "price": r["price"]} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
