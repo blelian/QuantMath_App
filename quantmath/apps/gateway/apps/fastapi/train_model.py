@@ -12,7 +12,7 @@ import ssl
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "model.h5")
+MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")  # <-- use .keras format
 
 # Async function to fetch historical stock data from Neon
 async def fetch_stock_data():
@@ -50,18 +50,19 @@ async def train_model():
         tf.keras.layers.Dense(16, activation="relu"),
         tf.keras.layers.Dense(1)
     ])
+    # Use Keras metric object instead of string
     model.compile(
-    optimizer="adam",
-    loss="mse",
-    metrics=[tf.keras.metrics.MeanSquaredError()]
-)
+        optimizer="adam",
+        loss="mse",
+        metrics=[tf.keras.metrics.MeanSquaredError()]
+    )
 
     # Train
     model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=8)
 
-    # Save as .h5
+    # Save as native Keras format
     model.save(MODEL_PATH)
-    print(f"Model saved at {MODEL_PATH}")
+    print(f"✅ Model saved at {MODEL_PATH}")
 
 # Run training
 if __name__ == "__main__":
