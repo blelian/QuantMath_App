@@ -18,7 +18,7 @@ app = FastAPI(title="QuantMath AI Service")
 
 # ===== CORS CONFIGURATION =====
 origins = [
-    "https://quant-math-app.vercel.app",  # your deployed frontend
+    "https://quant-math-app.vercel.app",  # deployed frontend
     "http://localhost:3000",              # local dev
 ]
 
@@ -41,7 +41,7 @@ model = None
 scaler = None
 loaded_model_path = None
 
-# Helper: list files
+# Helper: list files in cwd
 def list_files():
     try:
         items = os.listdir(".")
@@ -126,7 +126,10 @@ async def fetch_stocks(limit: int = 10):
         raise HTTPException(status_code=500, detail="Database not initialized")
     try:
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT symbol, price FROM stocks LIMIT $1;", limit)
+            rows = await conn.fetch(
+                "SELECT symbol, price FROM stocks ORDER BY id ASC LIMIT $1;",
+                limit
+            )
             return [{"symbol": r["symbol"], "price": r["price"]} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
@@ -140,6 +143,12 @@ def read_root():
         "model_path": loaded_model_path,
     }
 
+# --- NEW: Stocks cached endpoint ---
+@app.get("/stocks/cached", response_model=List[StockData])
+async def get_cached_stocks(limit: int = 10):
+    return await fetch_stocks(limit)
+
+# --- Predict from DB ---
 @app.get("/predict_db", response_model=List[StockPrediction])
 async def predict_from_db(limit: int = 10):
     if model is None:
@@ -159,6 +168,7 @@ async def predict_from_db(limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
 
+# --- Predict from client POST ---
 @app.post("/predict", response_model=List[StockPrediction])
 async def predict_from_client(data: List[StockData]):
     if model is None:
