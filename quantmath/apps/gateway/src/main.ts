@@ -8,13 +8,24 @@ dotenv.config();
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS specifically for your frontend
-  const corsOrigin = process.env.CORS_ORIGIN ?? 'https://quantmath-frontend.vercel.app';
+  // Enable CORS for frontend(s) and allow credentials
+  const allowedOrigins = [
+    'https://quant-math-app.vercel.app', // your deployed frontend
+    'http://localhost:3000',             // local frontend dev
+  ];
+
   app.enableCors({
-    origin: corsOrigin,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
   });
-  console.log(`CORS enabled for: ${corsOrigin}`);
+  console.log(`CORS enabled for: ${allowedOrigins.join(', ')}`);
 
   // Swagger setup
   const config = new DocumentBuilder()
