@@ -1,3 +1,4 @@
+// stocks.controller.ts
 import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
 import { StocksService } from './stocks.service';
 import { StockDto } from './dto/stock.dto';
@@ -15,20 +16,8 @@ export class StocksController {
     description: 'List of stocks returned successfully.',
     schema: {
       type: 'array',
-      items: {
-        $ref: '#/components/schemas/StockDto',
-      },
-      example: [
-        { symbol: 'AAPL', price: 271.39999, updatedAt: '2025-10-31T09:59:04.391Z' },
-        { symbol: 'GOOG', price: 281.89999, updatedAt: '2025-10-31T09:59:04.753Z' },
-        { symbol: 'MSFT', price: 525.76001, updatedAt: '2025-10-31T09:59:05.128Z' },
-        { symbol: 'TSLA', price: 440.10001, updatedAt: '2025-10-31T09:59:05.473Z' },
-      ],
+      items: { $ref: '#/components/schemas/StockDto' },
     },
-  })
-  @ApiResponse({
-    status: 429,
-    description: 'Rate limit exceeded. Please try again later.',
   })
   async findAll(): Promise<StockDto[]> {
     const stocks = await this.stocksService.findAll();
@@ -38,6 +27,31 @@ export class StocksController {
         'Failed to fetch stock data or rate limit exceeded',
         HttpStatus.TOO_MANY_REQUESTS,
       );
+    }
+
+    return stocks;
+  }
+
+  // New cached route
+  @Get('cached')
+  @ApiOperation({ summary: 'Retrieve cached stock prices including AI predictions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cached stocks returned successfully.',
+    schema: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/StockDto' },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No cached stocks available',
+  })
+  async getCached(): Promise<StockDto[]> {
+    const stocks = await this.stocksService.findAll();
+
+    if (!stocks.length) {
+      throw new HttpException('No cached stocks found', HttpStatus.NOT_FOUND);
     }
 
     return stocks;
