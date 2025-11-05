@@ -2,26 +2,24 @@
 
 /**
  * src/app/page.tsx
- * Home component with:
- *  - Compute & AI prediction buttons
- *  - Candlestick chart + AI line
- *  - Correct TypeScript types & ApexCharts config
- *  - Smooth animations
+ * QuantMath Stock Dashboard:
+ * - Compute quantity-adjusted chart
+ * - AI prediction line
+ * - TypeScript-safe
+ * - Smooth panel animations
  */
 
-import * as React from "react"; // <-- ensures JSX namespace exists
+import * as React from "react";
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import type { StockData, StockPrediction } from "../types";
 import type { ApexOptions } from "apexcharts";
 
-// Augmented StockPrediction to allow missing backend fields
 type StockPredictionAug = StockPrediction & {
   signal?: "BUY" | "SELL" | "HOLD" | string;
   confidence?: number;
 };
 
-// Dynamically load chart (no SSR)
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
 export default function Home(): React.JSX.Element {
@@ -41,7 +39,7 @@ export default function Home(): React.JSX.Element {
   const [outputVisible, setOutputVisible] = useState(false);
   const [aiVisible, setAIVisible] = useState(false);
 
-  // Input panel entrance animation
+  // Animate input panel
   useEffect(() => {
     const timer = setTimeout(() => setInputVisible(true), 100);
     return () => clearTimeout(timer);
@@ -69,7 +67,7 @@ export default function Home(): React.JSX.Element {
     fetchStocks();
   }, []);
 
-  // Compute: fill price & chart data
+  // Compute chart with quantity adjustment
   const handleCompute = (e: React.FormEvent) => {
     e.preventDefault();
     const stock = stocks.find((s) => s.symbol === stockSymbol);
@@ -78,17 +76,25 @@ export default function Home(): React.JSX.Element {
       return;
     }
     setError(null);
+
+    const qty = quantity || 1;
     setPrice(stock.price);
 
     const ohlc = (stock.history || []).map((h) => ({
       x: h.time,
-      y: [h.open, h.high, h.low, h.close] as [number, number, number, number],
+      y: [
+        h.open * qty,
+        h.high * qty,
+        h.low * qty,
+        h.close * qty,
+      ] as [number, number, number, number],
     }));
+
     setChartData(ohlc);
     setShowOutput(true);
+    setOutputVisible(false);
 
-    const timer = setTimeout(() => setOutputVisible(true), 200);
-    return () => clearTimeout(timer);
+    setTimeout(() => setOutputVisible(true), 200);
   };
 
   // AI prediction
@@ -130,16 +136,15 @@ export default function Home(): React.JSX.Element {
 
       setAiPrediction(safePred);
       setShowAI(true);
+      setAIVisible(false);
 
-      const timer = setTimeout(() => setAIVisible(true), 200);
-      return () => clearTimeout(timer);
+      setTimeout(() => setAIVisible(true), 200);
     } catch (err) {
       console.error(err);
       setError("AI prediction failed. Check backend logs or network.");
     }
   };
 
-  // Naive signal derivation
   const deriveSignal = (pred: number, curr: number) => {
     const pct = ((pred - curr) / curr) * 100;
     if (pct >= 1) return "BUY";
@@ -160,7 +165,7 @@ export default function Home(): React.JSX.Element {
     }
   };
 
-  // ApexCharts series
+  // Chart series
   const series = [
     { name: "Price", type: "candlestick" as const, data: chartData },
     ...(aiPrediction && chartData.length > 0
@@ -179,7 +184,7 @@ export default function Home(): React.JSX.Element {
     xaxis: { type: "category" },
     yaxis: { tooltip: { enabled: true } },
     tooltip: { enabled: true },
-    theme: { mode: "dark" }, // cast fixed by `as const` on type above
+    theme: { mode: "dark" },
   };
 
   return (
@@ -259,7 +264,7 @@ export default function Home(): React.JSX.Element {
               <strong>Quantity:</strong> {quantity || "—"}
             </p>
             <p>
-              <strong>Price:</strong> ${price !== null ? price.toFixed(2) : "—"}
+              <strong>Price per unit:</strong> ${price !== null ? price.toFixed(2) : "—"}
             </p>
 
             {typeof Chart !== "undefined" ? (
@@ -283,9 +288,7 @@ export default function Home(): React.JSX.Element {
             </p>
             <p className="flex items-center gap-3 mt-2">
               <strong>Signal:</strong>
-              <span className={`px-2 py-1 rounded ${signalColor(aiPrediction.signal)}`}>
-                {aiPrediction.signal}
-              </span>
+              <span className={`px-2 py-1 rounded ${signalColor(aiPrediction.signal)}`}>{aiPrediction.signal}</span>
             </p>
             <p className="mt-3">
               <strong>Confidence:</strong>
