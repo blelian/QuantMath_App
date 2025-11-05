@@ -4,6 +4,15 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { StockData, StockPrediction } from "../types"; // Optional: define types in separate file
 
+// Define OHLCData for cached history
+interface OHLCData {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 // Dynamically import chart to avoid SSR issues
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -24,18 +33,16 @@ export default function Home() {
   const [outputVisible, setOutputVisible] = useState(false);
   const [aiVisible, setAIVisible] = useState(false);
 
-  // Animate input panel on mount
   useEffect(() => {
     setTimeout(() => setInputVisible(true), 100);
   }, []);
 
-  // Fetch precached stock data from backend
   useEffect(() => {
     const fetchStocks = async () => {
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/stocks/cached`);
         if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-        const data: StockData[] = await res.json();
+        const data: (StockData & { history?: OHLCData[] })[] = await res.json();
         setStocks(data);
       } catch (err) {
         console.error(err);
@@ -47,20 +54,24 @@ export default function Home() {
     fetchStocks();
   }, []);
 
-  // Compute output panel values
   const handleCompute = (e: React.FormEvent) => {
     e.preventDefault();
     const selectedStock = stocks.find((s) => s.symbol === stockSymbol);
     if (selectedStock) {
       setPrice(selectedStock.price);
-      // Prepare candlestick data for chart (OHLC)
-      setChartData(selectedStock.history || []); // `history` field should be in cached stock data
+
+      // Transform OHLCData to ApexCharts candlestick format
+      const ohlcData = (selectedStock.history || []).map((item) => ({
+        x: item.time,
+        y: [item.open, item.high, item.low, item.close] as [number, number, number, number],
+      }));
+      setChartData(ohlcData);
+
       setShowOutput(true);
       setTimeout(() => setOutputVisible(true), 200);
     }
   };
 
-  // Fetch AI prediction
   const handleAIPredict = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!price || !stockSymbol) return;
@@ -80,7 +91,6 @@ export default function Home() {
     }
   };
 
-  // Helper: signal color
   const signalColor = (signal?: string) => {
     switch (signal) {
       case "BUY":
@@ -182,10 +192,7 @@ export default function Home() {
                         {
                           name: "AI Prediction",
                           type: "line",
-                          data: chartData.map((c, i) => [
-                            c.x,
-                            aiPrediction.predicted_price,
-                          ]),
+                          data: chartData.map((c) => [c.x, aiPrediction.predicted_price]),
                         },
                       ]
                     : []),

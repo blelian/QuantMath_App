@@ -1,23 +1,21 @@
 // src/types.ts
 
-// Individual OHLC (Open, High, Low, Close) data point for candlestick chart
+// Represents a single stock in your precached data
 export interface OHLCData {
-  time: string;       // Timestamp or date string
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+  x: string; // date or timestamp
+  y: [number, number, number, number]; // [open, high, low, close]
 }
 
-// Stock data with optional historical price data
 export interface StockData {
   symbol: string;
   price: number;
-  history?: OHLCData[]; // Optional array of historical OHLC data
+  history?: OHLCData[]; // optional candlestick data
 }
 
-// Predicted stock price data
+// Represents the AI prediction for a stock
 export interface StockPrediction {
   symbol: string;
   predicted_price: number;
+  signal: "BUY" | "SELL" | "HOLD"; // trading recommendation
+  confidence: number; // percentage 0-100
 }
