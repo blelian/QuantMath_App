@@ -94,7 +94,10 @@ export class StocksService {
       const fastApiUrl =
         process.env.FASTAPI_URL || 'https://quantmath-app-1fastapi.onrender.com/predict';
 
-      const stocks = await this.stockRepo.findByIds(this.symbols);
+      // 🔹 FIXED: Query by symbol instead of primary key
+      const stocks = await this.stockRepo.find({
+        where: this.symbols.map((symbol) => ({ symbol })),
+      });
 
       const payload = stocks.map((s) => ({ symbol: s.symbol, price: s.price }));
       const response = await axios.post(fastApiUrl, payload);
