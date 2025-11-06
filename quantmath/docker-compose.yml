@@ -1,3 +1,5 @@
+version: '3.9'
+
 services:
   db:
     image: postgres:15
@@ -8,7 +10,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data"
+      - db_data:/var/lib/postgresql/data
 
   fastapi:
     build:
@@ -39,7 +41,7 @@ services:
     env_file:
       - ./apps/frontend/.env
     ports:
-      - "8080:3000"   # matches frontend Dockerfile
+      - "8080:3000"   
     depends_on:
       - nestjs
     restart: unless-stopped
