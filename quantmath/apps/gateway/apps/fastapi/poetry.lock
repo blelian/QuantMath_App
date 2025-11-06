@@ -707,8 +707,8 @@ files = [
 
 [package.dependencies]
 numpy = [
-    {version = ">=2.1.0", markers = "python_version >= \"3.13\""},
-    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=1.23.3", markers = "python_version >= \"3.11\""},
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
 ]
 
 [package.extras]
@@ -1012,7 +1012,10 @@ files = [
 ]
 
 [package.dependencies]
-numpy = {version = ">=1.26.0", markers = "python_version >= \"3.12\""}
+numpy = [
+    {version = ">=1.23.2", markers = "python_version == \"3.11\""},
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
+]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
 tzdata = ">=2022.7"
@@ -1960,5 +1963,5 @@ dev = ["pytest", "setuptools"]
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.12"
-content-hash = "dc07acb37bbb927eb9ff56287ab4f2a8680f03d04b5369cc363ba85e14665daf"
+python-versions = ">=3.11,<3.13"
+content-hash = "f076bec7a93477969763e9de19d03f2a2618bfbfd6e6bc488a013623bcbbbcd1"
