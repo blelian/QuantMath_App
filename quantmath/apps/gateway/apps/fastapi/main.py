@@ -20,15 +20,13 @@ load_dotenv()
 app = FastAPI(title="QuantMath AI Service")
 
 # ===== CORS =====
-# Allow Vercel frontend, Render deployments, localhost (dev), and Docker frontend
+# Allow Vercel frontend and both Render deployments + localhost (dev)
 origins = [
     "https://quant-math-app.vercel.app",
     "https://quantmath-app.onrender.com",
     "https://quantmath-app-1fastapi.onrender.com",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:8080",   # Docker frontend
-    "http://127.0.0.1:8080",   # Docker frontend
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -94,7 +92,7 @@ class StockPrediction(BaseModel):
 class UserAction(BaseModel):
     symbol: str
     action: str  # BUY / SELL / HOLD (frontend enforces)
-    confidence: Optional[float] = None  # 0..1 or 0..100
+    confidence: Optional[float] = None  # 0..1 or 0..100 (we'll accept either)
     quantity: Optional[int] = None
     note: Optional[str] = None
 
@@ -155,6 +153,12 @@ def derive_signal(pred: float, curr: float) -> str:
 
 # ===== Dynamic Confidence (0..1) =====
 def compute_confidence(pred: float, curr: float) -> float:
+    """
+    Produces a confidence score between 0..1 based on absolute price movement.
+    - 0% change => 0.0 confidence
+    - 3% change => 0.6
+    - 5%+ change => 1.0 (capped)
+    """
     try:
         delta = abs((pred - curr) / curr) * 100.0
         conf = min(delta / 5.0, 1.0)
@@ -259,9 +263,15 @@ async def predict_from_client(data: List[StockData]):
 # ===== New endpoint: receive user actions (BUY/SELL/HOLD) =====
 @app.post("/action")
 async def receive_action(action: UserAction, request: Request):
+    """
+    Accept actions from frontend buttons.
+    Attempts to persist in DB (table 'actions' expected),
+    otherwise logs the action and returns acknowledgement.
+    """
     payload = {
         "symbol": action.symbol,
         "action": action.action.upper(),
+        # normalize confidence to 0..1 if frontend sent 0..100
         "confidence": (action.confidence / 100.0) if action.confidence and action.confidence > 1 else (action.confidence or None),
         "quantity": action.quantity,
         "note": action.note,
@@ -269,9 +279,11 @@ async def receive_action(action: UserAction, request: Request):
         "remote_addr": request.client.host if request.client else None,
     }
 
+    # Try to persist to DB if available
     if db_pool:
         try:
             async with db_pool.acquire() as conn:
+                # Create a simple actions table if it doesn't exist (safe-to-run)
                 await conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS actions (
@@ -303,6 +315,7 @@ async def receive_action(action: UserAction, request: Request):
         except Exception as e:
             print(f"⚠️ Failed to persist action: {e}")
             traceback.print_exc()
-
+            # fallthrough to returning ack
+    # If we get here, either no DB or persisting failed — log and ack
     print("ACTION RECEIVED (no DB):", json.dumps(payload))
     return {"status": "ok", "persisted": False, "payload": payload}

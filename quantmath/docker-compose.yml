@@ -15,6 +15,7 @@ services:
   fastapi:
     build:
       context: ./apps/gateway/apps/fastapi
+      dockerfile: Dockerfile
     env_file:
       - ./apps/gateway/apps/fastapi/.env
     ports:
@@ -26,6 +27,7 @@ services:
   nestjs:
     build:
       context: ./apps/gateway
+      dockerfile: Dockerfile
     env_file:
       - ./apps/gateway/.env
     ports:
@@ -38,10 +40,11 @@ services:
   frontend:
     build:
       context: ./apps/frontend
+      dockerfile: Dockerfile
     env_file:
       - ./apps/frontend/.env
     ports:
-      - "8080:3000"   
+      - "8080:3000"
     depends_on:
       - nestjs
     restart: unless-stopped
