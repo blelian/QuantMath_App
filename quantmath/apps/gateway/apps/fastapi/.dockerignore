@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*.h5
+*.keras
+*.pkl
+*.log
+.env
+.vscode/
+.git

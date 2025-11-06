@@ -1,30 +1,35 @@
-# Use official Python image
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies for TensorFlow
+# System dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    libopenblas-dev \
-    liblapack-dev \
-    libblas-dev \
+    build-essential curl libopenblas-dev liblapack-dev libblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy ONLY FastAPI app folder (so model.keras & scaler.pkl come with it)
-COPY quantmath/apps/gateway/apps/fastapi /app
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:$PATH"
 
-# Install requirements
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy dependency files
+COPY pyproject.toml poetry.lock* ./
+COPY .env .  
 
-# Expose port
+# Install dependencies (Poetry)
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-root --only main
+
+# Copy app code
+COPY quantmath/apps/gateway/apps/fastapi/ /app/
+
+# Create model/scaler directories
+RUN mkdir -p /app/models
+
+# Expose FastAPI port
 EXPOSE 8000
 
-# Avoid stdout buffering
 ENV PYTHONUNBUFFERED=1
+ENV MODEL_PATH=/app/models/model.keras
+ENV SCALER_PATH=/app/models/scaler.pkl
 
-# Run FastAPI normally (NO --reload in production)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

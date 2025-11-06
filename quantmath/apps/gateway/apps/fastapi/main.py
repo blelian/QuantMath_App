@@ -7,19 +7,19 @@ import asyncpg
 import os
 import numpy as np
 import tensorflow as tf
-from dotenv import load_dotenv
-import ssl
 import joblib
+import ssl
+from dotenv import load_dotenv
 import traceback
 
 load_dotenv()
 
 app = FastAPI(title="QuantMath AI Service")
 
-# ===== CORS CONFIGURATION =====
+# ===== CORS =====
 origins = [
-    "https://quant-math-app.vercel.app",  # deployed frontend
-    "http://localhost:3000",              # local dev
+    "https://quant-math-app.vercel.app",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
@@ -32,24 +32,13 @@ app.add_middleware(
 
 # ===== ENV VARS =====
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "model.keras")
-MODEL_H5 = "model.h5"
-SCALER_PATH = "scaler.pkl"
+MODEL_PATH = os.getenv("MODEL_PATH", "models/model.keras")
+SCALER_PATH = os.getenv("SCALER_PATH", "models/scaler.pkl")
 
 db_pool: Optional[asyncpg.pool.Pool] = None
 model = None
 scaler = None
 loaded_model_path = None
-
-# Helper: list files in cwd
-def list_files():
-    try:
-        items = os.listdir(".")
-        print("CWD files:", items)
-    except Exception as e:
-        print("Failed to list files:", e)
-
-list_files()
 
 # Load scaler
 if os.path.exists(SCALER_PATH):
@@ -62,21 +51,17 @@ if os.path.exists(SCALER_PATH):
 # Load model
 def try_load_model():
     global model, loaded_model_path
-    candidate_paths = [MODEL_PATH, MODEL_H5]
-    for p in candidate_paths:
-        if not p:
-            continue
-        if os.path.exists(p):
-            try:
-                print(f"Attempting to load model from {p} (compile=False)...")
-                model = tf.keras.models.load_model(p, compile=False)
-                loaded_model_path = p
-                print("✅ Model loaded from:", p)
-                return True
-            except Exception as e:
-                print(f"⚠️ Failed to load model from {p}: {e}")
-                traceback.print_exc()
-    print("⚠️ No compatible model loaded.")
+    if os.path.exists(MODEL_PATH):
+        try:
+            print(f"Attempting to load model from {MODEL_PATH} (compile=False)...")
+            model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+            loaded_model_path = MODEL_PATH
+            print("✅ Model loaded from:", MODEL_PATH)
+            return True
+        except Exception as e:
+            print(f"⚠️ Failed to load model: {e}")
+            traceback.print_exc()
+    print("⚠️ No model loaded.")
     return False
 
 try_load_model()
@@ -107,9 +92,9 @@ async def startup():
             max_size=10,
             ssl=ssl_context
         )
-        print("✅ Database pool created successfully")
+        print("✅ Database pool created")
     except Exception as e:
-        print(f"❌ Failed to connect to database: {e}")
+        print(f"❌ DB connection failed: {e}")
         raise e
 
 @app.on_event("shutdown")
@@ -143,46 +128,37 @@ def read_root():
         "model_path": loaded_model_path,
     }
 
-# --- NEW: Stocks cached endpoint ---
 @app.get("/stocks/cached", response_model=List[StockData])
 async def get_cached_stocks(limit: int = 10):
     return await fetch_stocks(limit)
 
-# --- Predict from DB ---
 @app.get("/predict_db", response_model=List[StockPrediction])
 async def predict_from_db(limit: int = 10):
     if model is None:
-        raise HTTPException(status_code=503, detail="ML model not loaded yet")
+        raise HTTPException(status_code=503, detail="ML model not loaded")
     data = await fetch_stocks(limit)
     if not data:
         return []
     try:
         prices = np.array([stock["price"] for stock in data]).reshape(-1, 1)
-        if scaler is not None:
+        if scaler:
             prices = scaler.transform(prices)
         preds = model.predict(prices, verbose=0).flatten()
-        return [
-            {"symbol": stock["symbol"], "predicted_price": float(pred)}
-            for stock, pred in zip(data, preds)
-        ]
+        return [{"symbol": s["symbol"], "predicted_price": float(p)} for s, p in zip(data, preds)]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
 
-# --- Predict from client POST ---
 @app.post("/predict", response_model=List[StockPrediction])
 async def predict_from_client(data: List[StockData]):
     if model is None:
-        raise HTTPException(status_code=503, detail="ML model not loaded yet")
+        raise HTTPException(status_code=503, detail="ML model not loaded")
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
     try:
-        prices = np.array([stock.price for stock in data]).reshape(-1, 1)
-        if scaler is not None:
+        prices = np.array([s.price for s in data]).reshape(-1, 1)
+        if scaler:
             prices = scaler.transform(prices)
         preds = model.predict(prices, verbose=0).flatten()
-        return [
-            {"symbol": stock.symbol, "predicted_price": float(pred)}
-            for stock, pred in zip(data, preds)
-        ]
+        return [{"symbol": s.symbol, "predicted_price": float(p)} for s, p in zip(data, preds)]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
