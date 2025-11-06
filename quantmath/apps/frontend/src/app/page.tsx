@@ -41,6 +41,7 @@ export default function Home(): React.JSX.Element {
   const [outputVisible, setOutputVisible] = useState(false);
   const [aiVisible, setAIVisible] = useState(false);
 
+  const [computed, setComputed] = useState(false); // <-- NEW: whether Compute ran
   const aiPanelRef = useRef<HTMLDivElement | null>(null);
   const metaRef = useRef<HTMLDivElement | null>(null);
   const [modelMeta, setModelMeta] = useState<any | null>(null);
@@ -90,7 +91,6 @@ export default function Home(): React.JSX.Element {
 
   // deterministic small-history generator when no history available
   const generateHistoryFromPrice = (p: number, days = 30) => {
-    // deterministic pseudo-random using price as seed-like value
     let seed = Math.floor((p % 1) * 100000) || Math.floor(p % 1000) + 1;
     const rand = () => {
       seed = (seed * 9301 + 49297) % 233280;
@@ -104,7 +104,7 @@ export default function Home(): React.JSX.Element {
       dt.setDate(baseDate.getDate() - i);
       const time = dt.toISOString().slice(0, 10);
 
-      const variability = 0.015 + rand() * 0.02; // 1.5% - 3.5%
+      const variability = 0.015 + rand() * 0.02;
       const open = p * (1 + (rand() - 0.5) * variability);
       const close = p * (1 + (rand() - 0.5) * variability);
       const high = Math.max(open, close) * (1 + rand() * 0.01);
@@ -118,6 +118,14 @@ export default function Home(): React.JSX.Element {
       });
     }
     return out;
+  };
+
+  // Reset computed + AI prediction when user selects a different stock
+  const onSelectStock = (symbol: string) => {
+    setStockSymbol(symbol);
+    setComputed(false);
+    setAiPrediction(null);
+    setShowAI(false);
   };
 
   // Compute chart with quantity adjustment
@@ -148,7 +156,34 @@ export default function Home(): React.JSX.Element {
     setShowOutput(true);
     setOutputVisible(false);
 
+    // mark that compute has been performed for this selection
+    setComputed(true);
+    setAiPrediction(null);
+    setShowAI(false);
+
     setTimeout(() => setOutputVisible(true), 200);
+  };
+
+  // Confidence helpers
+  const normalizeConfidenceToPct = (raw?: number) => {
+    if (raw === undefined || raw === null || Number.isNaN(raw)) return 0;
+    // backend may return 0-1 or 0-100
+    if (raw <= 1) return Math.round(raw * 100);
+    return Math.round(Math.min(raw, 100));
+  };
+
+  // continuous color from red -> yellow -> green based on percent (0..100)
+  const confidenceColor = (pct: number) => {
+    const p = Math.max(0, Math.min(100, pct));
+    // if p <= 50 => red -> yellow (255, 0, 0) -> (255,255,0)
+    // if p > 50 => yellow -> green (255,255,0) -> (0,255,0)
+    if (p <= 50) {
+      const g = Math.round((p / 50) * 255);
+      return `rgb(255,${g},0)`;
+    } else {
+      const r = Math.round(((100 - p) / 50) * 255);
+      return `rgb(${r},255,0)`;
+    }
   };
 
   // AI prediction
@@ -156,6 +191,12 @@ export default function Home(): React.JSX.Element {
     e.preventDefault();
     if (!stockSymbol) {
       setError("Select a stock to predict.");
+      return;
+    }
+
+    // require compute before calling AI
+    if (!computed) {
+      setError("Press Compute first to enable Run AI Prediction.");
       return;
     }
 
@@ -182,24 +223,24 @@ export default function Home(): React.JSX.Element {
       const [pred] = Array.isArray(resp) ? resp : [resp];
 
       const predicted_price = Number(pred?.predicted_price ?? usedPrice);
+      const rawConfidence = typeof pred?.confidence === "number" ? pred.confidence : (pred?.confidence ? Number(pred.confidence) : undefined);
+      const pct = normalizeConfidenceToPct(rawConfidence);
 
       const safePred: StockPredictionAug = {
         symbol: pred?.symbol ?? stockSymbol,
         predicted_price,
         signal: pred?.signal ?? deriveSignal(predicted_price, usedPrice),
-        confidence: typeof pred?.confidence === "number" ? pred.confidence : 50,
+        confidence: pct,
       };
 
       setAiPrediction(safePred);
       setShowAI(true);
       setAIVisible(false);
 
-      // ensure panel visible to user
       setTimeout(() => {
         setAIVisible(true);
         if (aiPanelRef.current) {
           aiPanelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-          // focus for keyboard users
           aiPanelRef.current.focus?.();
         }
       }, 200);
@@ -286,7 +327,7 @@ export default function Home(): React.JSX.Element {
           ) : (
             <form onSubmit={handleCompute} className="flex flex-col gap-4">
               <label htmlFor="symbol">Stock Symbol</label>
-              <select id="symbol" value={stockSymbol} onChange={(e) => setStockSymbol(e.target.value)}>
+              <select id="symbol" value={stockSymbol} onChange={(e) => onSelectStock(e.target.value)}>
                 <option value="">Select stock</option>
                 {stocks.map((s) => (
                   <option key={s.symbol} value={s.symbol}>
@@ -315,7 +356,7 @@ export default function Home(): React.JSX.Element {
                 <button
                   type="button"
                   onClick={handleAIPredict}
-                  disabled={!stockSymbol || (!price && !stocks.find((s) => s.symbol === stockSymbol))}
+                  disabled={!computed || !stockSymbol || (!price && !stocks.find((s) => s.symbol === stockSymbol))}
                   className="flex-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-[rgba(0,229,255,0.15)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.35)] hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[#00E5FF] transition-all"
                 >
                   Run AI Prediction
@@ -370,7 +411,17 @@ export default function Home(): React.JSX.Element {
                 <div className={`inline-flex items-center gap-2 px-3 py-1 rounded ${signalColor(aiPrediction.signal)}`}>
                   <span className="font-semibold">{aiPrediction.signal}</span>
                 </div>
-                <p className="text-xs mt-2 text-[#9CE8FF]">Confidence: {Math.round(aiPrediction.confidence ?? 50)}%</p>
+                <p className="text-xs mt-2 text-[#9CE8FF]">Confidence: {Math.round(aiPrediction.confidence ?? 0)}%</p>
+                <div className="w-full bg-gray-700 rounded h-3 mt-1 overflow-hidden">
+                  <div
+                    style={{
+                      width: `${Math.round(aiPrediction.confidence ?? 0)}%`,
+                      height: "100%",
+                      background: confidenceColor(Math.round(aiPrediction.confidence ?? 0)),
+                      transition: "width 400ms ease",
+                    }}
+                  />
+                </div>
               </div>
             </div>
 

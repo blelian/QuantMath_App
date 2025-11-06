@@ -70,6 +70,25 @@ async def train_model():
     model = build_model()
     model.fit(X_train, y_train, validation_data=(X_test, y_test),
               epochs=50, batch_size=8, verbose=1)
+        # Evaluate model performance
+    val_loss = model.evaluate(X_test, y_test, verbose=0)
+
+    # Save training metadata
+    metadata = {
+        "trained": True,
+        "model_path": MODEL_PATH,
+        "scaler_path": SCALER_PATH,
+        "samples": len(X),
+        "val_loss": float(val_loss),
+        "confidence_calculation": "abs(pred - actual) / actual * 100"
+    }
+
+    metadata_path = os.path.join(os.path.dirname(MODEL_PATH), "metadata.json")
+    with open(metadata_path, "w") as f:
+        import json
+        json.dump(metadata, f, indent=4)
+    print(f"✅ Saved metadata -> {metadata_path}")
+
 
     # Save Keras model
     model.save(MODEL_PATH)

@@ -1,8 +1,9 @@
 # main.py
 import os
+import json
 import ssl
 import traceback
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
 import asyncpg
 import joblib
@@ -22,7 +23,6 @@ origins = [
     "https://quant-math-app.vercel.app",
     "http://localhost:3000",
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -35,40 +35,50 @@ app.add_middleware(
 DATABASE_URL = os.getenv("DATABASE_URL")
 MODEL_PATH = os.getenv("MODEL_PATH", "models/model.keras")
 SCALER_PATH = os.getenv("SCALER_PATH", "models/scaler.pkl")
+METADATA_PATH = os.getenv("METADATA_PATH", "models/metadata.json")
 
+# runtime state
 db_pool: Optional[asyncpg.pool.Pool] = None
-model = None
-scaler = None
-loaded_model_path = None
+model: Optional[Any] = None
+scaler: Optional[Any] = None
+loaded_model_path: Optional[str] = None
+compute_ready = False  # <---- NEW: prevents prediction before compute
+last_scaled_input = None  # memory buffer
 
-# ===== LOAD SCALER =====
+# ===== Load scaler =====
 if os.path.exists(SCALER_PATH):
     try:
         scaler = joblib.load(SCALER_PATH)
         print(f"✅ Loaded scaler: {SCALER_PATH}")
-    except Exception as e:
-        print(f"⚠️ Failed to load scaler: {e}")
+    except:
         traceback.print_exc()
+else:
+    print(f"⚠️ Scaler not found at {SCALER_PATH}")
 
-# ===== LOAD MODEL =====
-def try_load_model():
+# ===== Load model =====
+def try_load_model() -> bool:
     global model, loaded_model_path
-    if os.path.exists(MODEL_PATH):
+    if MODEL_PATH and os.path.exists(MODEL_PATH):
         try:
-            print(f"Attempting to load model from {MODEL_PATH} (compile=False)...")
             model = tf.keras.models.load_model(MODEL_PATH, compile=False)
             loaded_model_path = MODEL_PATH
-            print(f"✅ Model loaded from {MODEL_PATH}")
+            print(f"✅ Model loaded from: {MODEL_PATH}")
             return True
-        except Exception as e:
-            print(f"⚠️ Failed to load model: {e}")
+        except:
             traceback.print_exc()
     print("⚠️ No model loaded.")
     return False
 
 try_load_model()
 
-# ===== DATA MODELS =====
+# ===== Pydantic Models =====
+class MarketInput(BaseModel):
+    open_price: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
 class StockData(BaseModel):
     symbol: str
     price: float
@@ -79,27 +89,21 @@ class StockPrediction(BaseModel):
     signal: Optional[str] = None
     confidence: Optional[float] = None
 
-# ===== STARTUP / SHUTDOWN =====
+# ===== Startup / Shutdown =====
 @app.on_event("startup")
 async def startup():
     global db_pool
     if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL not provided")
+        print("⚠️ DATABASE_URL missing; DB features disabled.")
+        return
     try:
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-
-        db_pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            min_size=1,
-            max_size=10,
-            ssl=ssl_context
-        )
+        db_pool = await asyncpg.create_pool(DATABASE_URL, ssl=ssl_context)
         print("✅ Database pool created")
-    except Exception as e:
-        print(f"❌ DB connection failed: {e}")
-        raise e
+    except:
+        traceback.print_exc()
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -108,89 +112,78 @@ async def shutdown():
         await db_pool.close()
         print("🛑 Database pool closed")
 
-# ===== DB FETCH =====
+# ===== DB Fetch =====
 async def fetch_stocks(limit: int = 10):
-    global db_pool
     if not db_pool:
-        raise HTTPException(status_code=500, detail="Database not initialized")
+        raise HTTPException(status_code=500, detail="DB not initialized")
     try:
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT symbol, price FROM stocks ORDER BY id ASC LIMIT $1;",
-                limit
-            )
+            rows = await conn.fetch("SELECT symbol, price FROM stocks ORDER BY id ASC LIMIT $1;", limit)
             return [{"symbol": r["symbol"], "price": r["price"]} for r in rows]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
 
-# ===== UTILS =====
-def derive_signal(pred: float, curr: float) -> str:
-    pct = ((pred - curr) / curr) * 100
-    if pct >= 1:
-        return "BUY"
-    if pct <= -1:
-        return "SELL"
-    return "HOLD"
+# ===== Compute Route (NEW) =====
+@app.post("/compute")
+def compute(m: MarketInput):
+    """Normalize & store input. Prediction disabled until this runs."""
+    global compute_ready, last_scaled_input
 
-# ===== ROUTES =====
-@app.get("/")
-def read_root():
-    return {
-        "message": "FastAPI AI backend with TensorFlow is running!",
-        "model_loaded": loaded_model_path is not None,
-        "model_path": loaded_model_path,
-    }
+    if scaler is None:
+        raise HTTPException(status_code=500, detail="Scaler not loaded.")
 
-@app.get("/stocks/cached", response_model=List[StockData])
-async def get_cached_stocks(limit: int = 10):
-    return await fetch_stocks(limit)
+    raw = np.array([[m.open_price, m.high, m.low, m.close, m.volume]])
+    last_scaled_input = scaler.transform(raw)
+    compute_ready = True
 
+    return {"status": "computed", "message": "Run AI Prediction is now enabled."}
+
+# ===== Confidence Function (NEW) =====
+def compute_confidence(pred: float, current: float) -> float:
+    diff_ratio = abs(pred - current) / max(current, 1e-6)
+    # convert to 0–1 scale (cap at 100%)
+    return float(np.clip(diff_ratio, 0, 1))
+
+# ===== Predict from DB (updated confidence) =====
 @app.get("/predict_db", response_model=List[StockPrediction])
 async def predict_from_db(limit: int = 10):
     if model is None:
-        raise HTTPException(status_code=503, detail="ML model not loaded")
-    data = await fetch_stocks(limit)
-    if not data:
-        return []
-    try:
-        prices = np.array([stock["price"] for stock in data]).reshape(-1, 1)
-        if scaler:
-            prices = scaler.transform(prices)
-        preds = model.predict(prices, verbose=0).flatten()
-        results = []
-        for s, p in zip(data, preds):
-            signal = derive_signal(float(p), s["price"])
-            results.append({
-                "symbol": s["symbol"],
-                "predicted_price": float(p),
-                "signal": signal,
-                "confidence": 50  # default, can be improved later
-            })
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+        raise HTTPException(status_code=503, detail="Model not loaded")
 
-@app.post("/predict", response_model=List[StockPrediction])
-async def predict_from_client(data: List[StockData]):
-    if model is None:
-        raise HTTPException(status_code=503, detail="ML model not loaded")
-    if not data:
-        raise HTTPException(status_code=400, detail="No data provided")
-    try:
-        prices = np.array([s.price for s in data]).reshape(-1, 1)
-        if scaler:
-            prices = scaler.transform(prices)
-        preds = model.predict(prices, verbose=0).flatten()
-        results = []
-        for s, p in zip(data, preds):
-            signal = derive_signal(float(p), s.price)
-            results.append({
-                "symbol": s.symbol,
-                "predicted_price": float(p),
-                "signal": signal,
-                "confidence": 50  # placeholder, can be replaced with model-derived confidence
-            })
-        return results
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+    data = await fetch_stocks(limit)
+    prices = np.array([s["price"] for s in data]).reshape(-1, 1)
+
+    if scaler:
+        prices = scaler.transform(prices)
+
+    preds = model.predict(prices, verbose=0).flatten()
+
+    results = []
+    for s, p in zip(data, preds):
+        confidence = compute_confidence(float(p), s["price"])
+        signal = "BUY" if p > s["price"] else "SELL"
+        results.append({
+            "symbol": s["symbol"],
+            "predicted_price": float(p),
+            "signal": signal,
+            "confidence": confidence,
+        })
+    return results
+
+# ===== Predict from client (requires compute first) =====
+@app.get("/predict_single")
+def predict_single():
+    global compute_ready, last_scaled_input
+
+    if not compute_ready:
+        raise HTTPException(status_code=400, detail="You must compute first")
+
+    if last_scaled_input is None:
+        raise HTTPException(status_code=500, detail="No computed input stored")
+
+    pred = model.predict(last_scaled_input, verbose=0)[0][0]
+    return {"prediction": float(pred)}
+
+@app.get("/")
+def root():
+    return {"message": "QuantMath AI running", "model_loaded": loaded_model_path is not None}
