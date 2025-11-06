@@ -1,16 +1,17 @@
 # main.py
+import os
+import ssl
+import traceback
+from typing import List, Optional
+
+import asyncpg
+import joblib
+import numpy as np
+import tensorflow as tf
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
-import asyncpg
-import os
-import numpy as np
-import tensorflow as tf
-import joblib
-import ssl
-from dotenv import load_dotenv
-import traceback
 
 load_dotenv()
 
@@ -40,15 +41,16 @@ model = None
 scaler = None
 loaded_model_path = None
 
-# Load scaler
+# ===== LOAD SCALER =====
 if os.path.exists(SCALER_PATH):
     try:
         scaler = joblib.load(SCALER_PATH)
-        print("✅ Loaded scaler:", SCALER_PATH)
+        print(f"✅ Loaded scaler: {SCALER_PATH}")
     except Exception as e:
-        print("⚠️ Failed to load scaler:", e)
+        print(f"⚠️ Failed to load scaler: {e}")
+        traceback.print_exc()
 
-# Load model
+# ===== LOAD MODEL =====
 def try_load_model():
     global model, loaded_model_path
     if os.path.exists(MODEL_PATH):
@@ -56,7 +58,7 @@ def try_load_model():
             print(f"Attempting to load model from {MODEL_PATH} (compile=False)...")
             model = tf.keras.models.load_model(MODEL_PATH, compile=False)
             loaded_model_path = MODEL_PATH
-            print("✅ Model loaded from:", MODEL_PATH)
+            print(f"✅ Model loaded from {MODEL_PATH}")
             return True
         except Exception as e:
             print(f"⚠️ Failed to load model: {e}")
@@ -74,6 +76,8 @@ class StockData(BaseModel):
 class StockPrediction(BaseModel):
     symbol: str
     predicted_price: float
+    signal: Optional[str] = None
+    confidence: Optional[float] = None
 
 # ===== STARTUP / SHUTDOWN =====
 @app.on_event("startup")
@@ -119,6 +123,15 @@ async def fetch_stocks(limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB fetch error: {e}")
 
+# ===== UTILS =====
+def derive_signal(pred: float, curr: float) -> str:
+    pct = ((pred - curr) / curr) * 100
+    if pct >= 1:
+        return "BUY"
+    if pct <= -1:
+        return "SELL"
+    return "HOLD"
+
 # ===== ROUTES =====
 @app.get("/")
 def read_root():
@@ -144,7 +157,16 @@ async def predict_from_db(limit: int = 10):
         if scaler:
             prices = scaler.transform(prices)
         preds = model.predict(prices, verbose=0).flatten()
-        return [{"symbol": s["symbol"], "predicted_price": float(p)} for s, p in zip(data, preds)]
+        results = []
+        for s, p in zip(data, preds):
+            signal = derive_signal(float(p), s["price"])
+            results.append({
+                "symbol": s["symbol"],
+                "predicted_price": float(p),
+                "signal": signal,
+                "confidence": 50  # default, can be improved later
+            })
+        return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
 
@@ -159,6 +181,16 @@ async def predict_from_client(data: List[StockData]):
         if scaler:
             prices = scaler.transform(prices)
         preds = model.predict(prices, verbose=0).flatten()
-        return [{"symbol": s.symbol, "predicted_price": float(p)} for s, p in zip(data, preds)]
+        results = []
+        for s, p in zip(data, preds):
+            signal = derive_signal(float(p), s.price)
+            results.append({
+                "symbol": s.symbol,
+                "predicted_price": float(p),
+                "signal": signal,
+                "confidence": 50  # placeholder, can be replaced with model-derived confidence
+            })
+        return results
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")

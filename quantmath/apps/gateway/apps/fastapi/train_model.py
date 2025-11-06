@@ -1,4 +1,3 @@
-# train_model.py
 import os
 import asyncio
 import ssl
@@ -13,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-MODEL_PATH = os.getenv("MODEL_PATH", "models/model.keras")  # native Keras format
+MODEL_PATH = os.getenv("MODEL_PATH", "models/model.keras")
 SCALER_PATH = os.getenv("SCALER_PATH", "models/scaler.pkl")
 
 if not DATABASE_URL:
@@ -23,7 +22,7 @@ if not DATABASE_URL:
 os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
 os.makedirs(os.path.dirname(SCALER_PATH), exist_ok=True)
 
-# Async fetch from Neon/Postgres
+# Async fetch from DB
 async def fetch_stock_data():
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -35,7 +34,7 @@ async def fetch_stock_data():
     await pool.close()
     return [r["price"] for r in rows]
 
-# Build model
+# Build TensorFlow model
 def build_model():
     model = tf.keras.Sequential([
         tf.keras.layers.Input(shape=(1,)),
@@ -72,9 +71,22 @@ async def train_model():
     model.fit(X_train, y_train, validation_data=(X_test, y_test),
               epochs=50, batch_size=8, verbose=1)
 
-    # Save Keras model (.keras only)
+    # Save Keras model
     model.save(MODEL_PATH)
     print(f"✅ Model saved at {MODEL_PATH}")
+
+    # Optional: Generate placeholder predictions with confidence for verification
+    preds = model.predict(X_scaled, verbose=0).flatten()
+    results = []
+    for actual, pred in zip(X.flatten(), preds):
+        signal = "BUY" if pred > actual else "SELL" if pred < actual else "HOLD"
+        confidence = float(abs(pred - actual) / actual * 100)
+        results.append({
+            "predicted_price": float(pred),
+            "signal": signal,
+            "confidence": confidence
+        })
+    print(f"✅ Sample predictions: {results[:5]}")
 
 if __name__ == "__main__":
     asyncio.run(train_model())

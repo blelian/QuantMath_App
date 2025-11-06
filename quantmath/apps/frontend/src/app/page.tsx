@@ -1,19 +1,21 @@
 "use client";
 
-/**
- * src/app/page.tsx
- * QuantMath Stock Dashboard:
- * - Compute quantity-adjusted chart
- * - AI prediction line
- * - TypeScript-safe
- * - Smooth panel animations
- */
-
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
-import type { StockData, StockPrediction } from "../types";
 import type { ApexOptions } from "apexcharts";
+
+type StockData = {
+  symbol: string;
+  price: number;
+  history?: { time: string; open: number; high: number; low: number; close: number }[];
+};
+type StockPrediction = {
+  symbol: string;
+  predicted_price: number;
+  signal?: string;
+  confidence?: number;
+};
 
 type StockPredictionAug = StockPrediction & {
   signal?: "BUY" | "SELL" | "HOLD" | string;
@@ -23,7 +25,7 @@ type StockPredictionAug = StockPrediction & {
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
 export default function Home(): React.JSX.Element {
-  const [stocks, setStocks] = useState<(StockData & { history?: StockData["history"] })[]>([]);
+  const [stocks, setStocks] = useState<StockData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,33 +41,84 @@ export default function Home(): React.JSX.Element {
   const [outputVisible, setOutputVisible] = useState(false);
   const [aiVisible, setAIVisible] = useState(false);
 
-  // Animate input panel
+  const aiPanelRef = useRef<HTMLDivElement | null>(null);
+  const metaRef = useRef<HTMLDivElement | null>(null);
+  const [modelMeta, setModelMeta] = useState<any | null>(null);
+
   useEffect(() => {
     const timer = setTimeout(() => setInputVisible(true), 100);
     return () => clearTimeout(timer);
   }, []);
 
-  // Fetch cached stocks
+  // fetch stocks + metadata
   useEffect(() => {
-    const fetchStocks = async () => {
+    const fetchAll = async () => {
       try {
         const backend = process.env.NEXT_PUBLIC_BACKEND_URLAI ?? "";
         if (!backend) throw new Error("NEXT_PUBLIC_BACKEND_URLAI not set");
+        const [resStocks, resMeta] = await Promise.allSettled([
+          fetch(`${backend}/stocks/cached`),
+          fetch(`${backend}/model/metadata`),
+        ]);
 
-        const res = await fetch(`${backend}/stocks/cached`);
-        if (!res.ok) throw new Error(`Failed to fetch stocks: ${res.status}`);
+        if (resStocks.status === "fulfilled") {
+          const r = resStocks.value;
+          if (!r.ok) throw new Error(`Failed to fetch stocks: ${r.status}`);
+          const data: StockData[] = await r.json();
+          setStocks(data);
+        } else {
+          console.error(resStocks.reason);
+          setError("Failed to fetch stocks.");
+        }
 
-        const data: (StockData & { history?: StockData["history"] })[] = await res.json();
-        setStocks(data);
+        if (resMeta.status === "fulfilled") {
+          const rm = resMeta.value;
+          if (rm.ok) {
+            const jm = await rm.json();
+            setModelMeta(jm);
+          }
+        }
       } catch (err) {
         console.error(err);
-        setError("Failed to fetch stocks. Check backend URL.");
+        setError("Failed to fetch backend data. Check backend URL.");
       } finally {
         setLoading(false);
       }
     };
-    fetchStocks();
+    fetchAll();
   }, []);
+
+  // deterministic small-history generator when no history available
+  const generateHistoryFromPrice = (p: number, days = 30) => {
+    // deterministic pseudo-random using price as seed-like value
+    let seed = Math.floor((p % 1) * 100000) || Math.floor(p % 1000) + 1;
+    const rand = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+
+    const out = [];
+    const baseDate = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const dt = new Date(baseDate);
+      dt.setDate(baseDate.getDate() - i);
+      const time = dt.toISOString().slice(0, 10);
+
+      const variability = 0.015 + rand() * 0.02; // 1.5% - 3.5%
+      const open = p * (1 + (rand() - 0.5) * variability);
+      const close = p * (1 + (rand() - 0.5) * variability);
+      const high = Math.max(open, close) * (1 + rand() * 0.01);
+      const low = Math.min(open, close) * (1 - rand() * 0.01);
+      out.push({
+        time,
+        open: Number(open.toFixed(4)),
+        high: Number(high.toFixed(4)),
+        low: Number(low.toFixed(4)),
+        close: Number(close.toFixed(4)),
+      });
+    }
+    return out;
+  };
 
   // Compute chart with quantity adjustment
   const handleCompute = (e: React.FormEvent) => {
@@ -80,7 +133,8 @@ export default function Home(): React.JSX.Element {
     const qty = quantity || 1;
     setPrice(stock.price);
 
-    const ohlc = (stock.history || []).map((h) => ({
+    const rawHistory = stock.history && stock.history.length ? stock.history : generateHistoryFromPrice(stock.price);
+    const ohlc = rawHistory.map((h) => ({
       x: h.time,
       y: [
         h.open * qty,
@@ -127,10 +181,12 @@ export default function Home(): React.JSX.Element {
       const resp = await res.json();
       const [pred] = Array.isArray(resp) ? resp : [resp];
 
+      const predicted_price = Number(pred?.predicted_price ?? usedPrice);
+
       const safePred: StockPredictionAug = {
         symbol: pred?.symbol ?? stockSymbol,
-        predicted_price: Number(pred?.predicted_price ?? usedPrice),
-        signal: pred?.signal ?? deriveSignal(Number(pred?.predicted_price ?? usedPrice), usedPrice),
+        predicted_price,
+        signal: pred?.signal ?? deriveSignal(predicted_price, usedPrice),
         confidence: typeof pred?.confidence === "number" ? pred.confidence : 50,
       };
 
@@ -138,7 +194,15 @@ export default function Home(): React.JSX.Element {
       setShowAI(true);
       setAIVisible(false);
 
-      setTimeout(() => setAIVisible(true), 200);
+      // ensure panel visible to user
+      setTimeout(() => {
+        setAIVisible(true);
+        if (aiPanelRef.current) {
+          aiPanelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+          // focus for keyboard users
+          aiPanelRef.current.focus?.();
+        }
+      }, 200);
     } catch (err) {
       console.error(err);
       setError("AI prediction failed. Check backend logs or network.");
@@ -155,13 +219,13 @@ export default function Home(): React.JSX.Element {
   const signalColor = (signal?: string) => {
     switch (signal) {
       case "BUY":
-        return "bg-green-500";
+        return "bg-green-500 text-black";
       case "SELL":
-        return "bg-red-500";
+        return "bg-red-500 text-white";
       case "HOLD":
-        return "bg-yellow-400";
+        return "bg-yellow-400 text-black";
       default:
-        return "bg-gray-400";
+        return "bg-gray-400 text-black";
     }
   };
 
@@ -185,6 +249,12 @@ export default function Home(): React.JSX.Element {
     yaxis: { tooltip: { enabled: true } },
     tooltip: { enabled: true },
     theme: { mode: "dark" },
+    stroke: { width: [1, 3] },
+    plotOptions: {
+      candlestick: {
+        colors: { upward: "#00E5FF", downward: "#FF6B6B" },
+      },
+    },
   };
 
   return (
@@ -192,6 +262,12 @@ export default function Home(): React.JSX.Element {
       <header className="text-center p-6 bg-[rgba(10,10,30,0.8)] backdrop-blur-md border-b border-[#00E5FF]">
         <h1 className="text-3xl font-bold">QuantMath Stock Dashboard</h1>
         <p className="text-sm mt-1 text-[#BEEAF6]">AI predictions powered by TensorFlow + FastAPI</p>
+        {modelMeta ? (
+          <div ref={metaRef} className="mt-2 text-xs text-[#9CE8FF]">
+            Model trained for <strong>{modelMeta.epochs}</strong> epochs — final val_loss:{" "}
+            <strong>{modelMeta.final_val_loss?.toFixed?.(6) ?? "n/a"}</strong>
+          </div>
+        ) : null}
       </header>
 
       <section className="container flex flex-wrap justify-center gap-8 p-8">
@@ -231,7 +307,7 @@ export default function Home(): React.JSX.Element {
               <div className="flex gap-3 mt-2">
                 <button
                   type="submit"
-                  className="flex-1 bg-[rgba(0,229,255,0.2)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.4)] hover:scale-105 transition-all"
+                  className="flex-1 cursor-pointer bg-[rgba(0,229,255,0.2)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.4)] hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[#00E5FF] transition-all"
                 >
                   Compute
                 </button>
@@ -240,7 +316,7 @@ export default function Home(): React.JSX.Element {
                   type="button"
                   onClick={handleAIPredict}
                   disabled={!stockSymbol || (!price && !stocks.find((s) => s.symbol === stockSymbol))}
-                  className="flex-1 disabled:opacity-50 disabled:cursor-not-allowed bg-[rgba(0,229,255,0.15)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.35)] hover:scale-105 transition-all"
+                  className="flex-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-[rgba(0,229,255,0.15)] border border-[#00E5FF] rounded-xl py-2 font-bold text-[#E0F7FA] shadow-md hover:bg-[rgba(0,229,255,0.35)] hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[#00E5FF] transition-all"
                 >
                   Run AI Prediction
                 </button>
@@ -278,27 +354,29 @@ export default function Home(): React.JSX.Element {
         {/* AI Prediction Panel */}
         {showAI && aiPrediction && (
           <div
-            className={`panel bg-[rgba(10,10,30,0.6)] border border-[#00E5FF] rounded-xl p-8 shadow-lg flex-1 min-w-[300px] transform transition-all duration-700 ${
-              aiVisible ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
+            ref={aiPanelRef}
+            tabIndex={-1}
+            className={`panel bg-[rgba(10,10,30,0.9)] border border-[#00E5FF] rounded-xl p-6 shadow-2xl w-full max-w-[500px] transform transition-all duration-500 ${
+              aiVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
             }`}
           >
-            <h2 className="text-xl font-bold mb-4">AI Prediction</h2>
-            <p>
-              <strong>Predicted Price:</strong> ${aiPrediction.predicted_price.toFixed(2)}
-            </p>
-            <p className="flex items-center gap-3 mt-2">
-              <strong>Signal:</strong>
-              <span className={`px-2 py-1 rounded ${signalColor(aiPrediction.signal)}`}>{aiPrediction.signal}</span>
-            </p>
-            <p className="mt-3">
-              <strong>Confidence:</strong>
-              <div className="w-full bg-gray-700 rounded h-3 mt-1">
-                <div
-                  className="bg-blue-400 h-3 rounded"
-                  style={{ width: `${Math.max(0, Math.min(100, aiPrediction.confidence ?? 50))}%` }}
-                />
+            <h2 className="text-xl font-bold mb-2">AI Prediction</h2>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#BEEAF6]">{aiPrediction.symbol}</p>
+                <p className="text-2xl font-bold">${aiPrediction.predicted_price.toFixed(4)}</p>
               </div>
-            </p>
+              <div className="text-right">
+                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded ${signalColor(aiPrediction.signal)}`}>
+                  <span className="font-semibold">{aiPrediction.signal}</span>
+                </div>
+                <p className="text-xs mt-2 text-[#9CE8FF]">Confidence: {Math.round(aiPrediction.confidence ?? 50)}%</p>
+              </div>
+            </div>
+
+            <div className="mt-4 text-xs text-[#BEEAF6]">
+              Note: Predictions are model outputs. See training metadata in the header.
+            </div>
           </div>
         )}
       </section>
