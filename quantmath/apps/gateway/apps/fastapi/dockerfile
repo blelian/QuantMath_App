@@ -1,8 +1,9 @@
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# System dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential curl libopenblas-dev liblapack-dev libblas-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -11,25 +12,26 @@ RUN apt-get update && apt-get install -y \
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/root/.local/bin:$PATH"
 
-# Copy dependency files
+# Copy dependency files first
 COPY pyproject.toml poetry.lock* ./
 
-# Install dependencies (Poetry)
+# Install dependencies via Poetry
 RUN poetry config virtualenvs.create false \
     && poetry install --no-root --only main
 
-# Copy the rest of the app code
-COPY . /app/
+# Copy all app code
+COPY . .
 
-# Create model/scaler directories
+# Ensure models directory exists
 RUN mkdir -p /app/models
 
-# Expose FastAPI port
+# Expose port for FastAPI
 EXPOSE 8000
 
+# Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV MODEL_PATH=/app/models/model.keras
 ENV SCALER_PATH=/app/models/scaler.pkl
 
-# Start the app
+# Start the FastAPI app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
