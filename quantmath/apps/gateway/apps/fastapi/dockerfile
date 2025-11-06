@@ -13,19 +13,18 @@ RUN apt-get update && apt-get install -y \
     libblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python packages
-COPY quantmath/apps/gateway/apps/fastapi/requirements.txt .
+# Copy ONLY FastAPI app folder (so model.keras & scaler.pkl come with it)
+COPY quantmath/apps/gateway/apps/fastapi /app
+
+# Install requirements
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files (everything in current Root Directory)
-COPY . .
-
-# Expose FastAPI port
+# Expose port
 EXPOSE 8000
 
-# Environment variable to avoid buffering stdout/stderr
+# Avoid stdout buffering
 ENV PYTHONUNBUFFERED=1
 
-# Start Uvicorn with FastAPI
-CMD ["uvicorn", "quantmath.apps.gateway.apps.fastapi.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Run FastAPI normally (NO --reload in production)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
