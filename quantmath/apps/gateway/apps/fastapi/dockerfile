@@ -12,15 +12,14 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/root/.local/bin:$PATH"
 
 # Copy dependency files
-COPY quantmath/apps/gateway/apps/fastapi/pyproject.toml quantmath/apps/gateway/apps/fastapi/poetry.lock* ./
-
+COPY pyproject.toml poetry.lock* ./
 
 # Install dependencies (Poetry)
 RUN poetry config virtualenvs.create false \
     && poetry install --no-root --only main
 
 # Copy app code
-COPY quantmath/apps/gateway/apps/fastapi/ /app/
+COPY ./ /app/
 
 # Create model/scaler directories
 RUN mkdir -p /app/models
