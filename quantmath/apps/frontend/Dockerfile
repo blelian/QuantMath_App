@@ -23,6 +23,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install pnpm globally in production stage
+RUN npm install -g pnpm
+
 # Copy built assets and node_modules from builder
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
