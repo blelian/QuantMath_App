@@ -1,21 +1,2 @@
-# Overview
-
-As a software engineer, I am beginning my programming portfolio by creating a simple “Hello World” application. This project helps verify that my development environment, Git, and GitHub setup are working correctly. It also establishes the basic workflow I will follow for future software projects in this course and beyond.
-
-The software is a short Python program that prints the classic message “Hello World” to the console. This represents the starting point for testing and demonstrating basic code execution and repository management.
-
-[Software Demo Video](https://www.youtube.com/watch?v=_zV1f7LPhzo)
-
-# Development Environment
-
-- **Tools Used:** Visual Studio Code, Git, GitHub  
-- **Programming Language:** Python 3  
-- **Libraries:** None (standard Python installation)  
-- **Execution Environment:** Python interpreter (run in terminal)
-
-# Useful Websites
-
-* [Python Official Documentation](https://docs.python.org/3/)
-* [Visual Studio Code Download](https://code.visualstudio.com/)
-* [GitHub Getting Started Guide](https://docs.github.com/en/get-started)
-* [Markdown Guide](https://www.markdownguide.org/cheat-sheet/)
+# QuantMath API Backend
+This repository contains the **NestJS TypeScript backend** for the QuantMath project. It manages stock data, connects to a Neon Postgres database, fetches financial data from the Twelve Data API, and provides data to the FastAPI backend for the frontend. Features include TypeScript classes, recursion, async functions, lists, and exception handling. File Structure: quantmath\apps\gateway\src, migrations, stocks, app.controller.spec.ts, app.controller.ts, app.module.ts, app.service.ts, data-source.ts, main.ts, module.ts, test, .dockerignore, .env, .gitignore, .prettierrc, Dockerfile, eslint.config.mjs, nest-cli.json, package.json, pnpm-lock.yaml, README.md, tsconfig.build.json, tsconfig.json Example Module (`src/module.ts`): ```typescript export class FibonacciCalculator { numbers: number[]; constructor() { this.numbers = []; } calculate(n: number): number { if (n<0) throw new Error('Negative numbers not allowed'); if(n<=1) return n; return this.calculate(n-1)+this.calculate(n-2); } populateList(n:number){for(let i=0;i<n;i++){this.numbers.push(this.calculate(i));}} async printNumbers(){for(const num of this.numbers){await new Promise(res=>setTimeout(res,100));console.log(num);}} } (async()=>{ try{const fib=new FibonacciCalculator();fib.populateList(10);await fib.printNumbers();} catch(err){console.error('Error occurred:',err);} })(); ``` Development Setup: Prerequisites: Node.js v20+, pnpm, NestJS CLI (`pnpm add -g @nestjs/cli`), Installation: `pnpm install`, Run Dev: `pnpm run start:dev`, Run Prod: `pnpm run start:prod`. Environment variables: `TWELVEDATA_KEY` for Twelve Data API, `DATABASE_URL` for Neon Postgres. This module prints to the terminal, uses a class, recursion, async functions, lists, and handles exceptions, fulfilling all required CSE310 W02 module requirements.
