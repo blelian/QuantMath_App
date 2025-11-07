@@ -1,2 +1,21 @@
-# QuantMath API Backend
-This repository contains the **NestJS TypeScript backend** for the QuantMath project. It manages stock data, connects to a Neon Postgres database, fetches financial data from the Twelve Data API, and provides data to the FastAPI backend for the frontend. Features include TypeScript classes, recursion, async functions, lists, and exception handling. File Structure: quantmath\apps\gateway\src, migrations, stocks, app.controller.spec.ts, app.controller.ts, app.module.ts, app.service.ts, data-source.ts, main.ts, module.ts, test, .dockerignore, .env, .gitignore, .prettierrc, Dockerfile, eslint.config.mjs, nest-cli.json, package.json, pnpm-lock.yaml, README.md, tsconfig.build.json, tsconfig.json Example Module (`src/module.ts`): ```typescript export class FibonacciCalculator { numbers: number[]; constructor() { this.numbers = []; } calculate(n: number): number { if (n<0) throw new Error('Negative numbers not allowed'); if(n<=1) return n; return this.calculate(n-1)+this.calculate(n-2); } populateList(n:number){for(let i=0;i<n;i++){this.numbers.push(this.calculate(i));}} async printNumbers(){for(const num of this.numbers){await new Promise(res=>setTimeout(res,100));console.log(num);}} } (async()=>{ try{const fib=new FibonacciCalculator();fib.populateList(10);await fib.printNumbers();} catch(err){console.error('Error occurred:',err);} })(); ``` Development Setup: Prerequisites: Node.js v20+, pnpm, NestJS CLI (`pnpm add -g @nestjs/cli`), Installation: `pnpm install`, Run Dev: `pnpm run start:dev`, Run Prod: `pnpm run start:prod`. Environment variables: `TWELVEDATA_KEY` for Twelve Data API, `DATABASE_URL` for Neon Postgres. This module prints to the terminal, uses a class, recursion, async functions, lists, and handles exceptions, fulfilling all required CSE310 W02 module requirements.
+# Overview
+
+The QuantMath API Backend is a TypeScript NestJS application designed to manage stock data, connect to a Neon Postgres database, fetch financial data from the Twelve Data API, and provide processed data to a FastAPI backend used by the frontend.  
+
+The purpose of this software is to practice building robust, scalable backend services in TypeScript, demonstrate key programming concepts such as classes, recursion, asynchronous functions, lists, and exception handling, and integrate multiple services and APIs in a single project.  
+
+[Software Demo Video](https://youtu.be/ElkwpmmKO8A)
+
+# Development Environment
+
+- **Tools Used:** Visual Studio Code, pnpm, NestJS CLI, Neon Postgres, Twelve Data API  
+- **Programming Language:** TypeScript (NestJS framework)  
+
+# Useful Websites
+
+* [NestJS Documentation](https://docs.nestjs.com/)
+* [Twelve Data API Documentation](https://twelvedata.com/docs)
+* [Neon Postgres Documentation](https://neon.tech/docs)
+* [TypeScript Handbook](https://www.typescriptlang.org/docs/)
+* [Visual Studio Code](https://code.visualstudio.com/)
+* [pnpm Package Manager](https://pnpm.io/)
