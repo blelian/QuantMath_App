@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as dotenv from 'dotenv';
+import { runModule } from './module'; // <-- import your assignment module
 
 dotenv.config();
 
@@ -50,6 +51,9 @@ async function bootstrap() {
   } else {
     console.log('Twelve Data API key found.');
   }
+
+  // Run the assignment module
+  await runModule(); // <-- this will print to the terminal
 
   // Start server
   const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
